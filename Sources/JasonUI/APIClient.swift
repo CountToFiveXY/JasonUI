@@ -16,7 +16,7 @@ struct WorkflowResponse: Decodable, Equatable {
 }
 
 struct ShortenResponse: Decodable, Equatable {
-    let shortKey: String
+    let shortUrl: String
 }
 
 enum CardType: String, CaseIterable, Identifiable, Codable {
@@ -25,6 +25,14 @@ enum CardType: String, CaseIterable, Identifiable, Codable {
     case ch = "CH"
 
     var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .ch: "Car Hunt"
+        case .se: "Special Event"
+        case .sp: "Spotlight"
+        }
+    }
 }
 
 enum APIError: LocalizedError, Equatable {
@@ -57,6 +65,26 @@ struct APIClient: Sendable {
         try await request(path: "health", method: "GET")
     }
 
+    func temporalIsAvailable() async -> Bool? {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+              components.host != nil else { return nil }
+        components.scheme = "http"
+        components.port = 8233
+        components.path = "/"
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3
+        do {
+            let (_, response) = try await session.data(for: request)
+            return response is HTTPURLResponse
+        } catch {
+            return false
+        }
+    }
+
     func shorten(url: String) async throws -> ShortenResponse {
         try await request(path: "v1/shorten", method: "POST", body: ["url": url])
     }
@@ -82,8 +110,24 @@ struct APIClient: Sendable {
         )
     }
 
-    func shortURL(for key: String) -> URL? {
-        baseURL.appendingPathComponent(key)
+    func shortURL(for path: String) -> URL? {
+        if let absoluteURL = URL(string: path), absoluteURL.scheme != nil {
+            return absoluteURL
+        }
+        return path.split(separator: "/").reduce(baseURL) { url, component in
+            url.appendingPathComponent(String(component))
+        }
+    }
+
+    func temporalWorkflowURL(workflowID: String, namespace: String = "default") -> URL? {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+              components.host != nil else { return nil }
+        components.scheme = "http"
+        components.port = 8233
+        components.path = "/namespaces/\(namespace)/workflows"
+        components.query = nil
+        components.fragment = nil
+        return components.url?.appendingPathComponent(workflowID)
     }
 
     private func request<Response: Decodable, Body: Encodable>(
@@ -143,4 +187,3 @@ struct APIClient: Sendable {
 private struct ErrorEnvelope: Decodable {
     let detail: String
 }
-

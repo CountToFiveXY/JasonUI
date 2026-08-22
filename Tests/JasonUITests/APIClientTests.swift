@@ -17,10 +17,16 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/v1/shorten")
-            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"shortKey":"3FzaP09x"}"#.utf8))
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"shortUrl":"go/3FzaP09x"}"#.utf8))
         }
         let response = try await client().shorten(url: "https://example.com/path")
-        #expect(response.shortKey == "3FzaP09x")
+        #expect(response.shortUrl == "go/3FzaP09x")
+        #expect(client().shortURL(for: response.shortUrl)?.absoluteString == "http://127.0.0.1:8080/go/3FzaP09x")
+    }
+
+    @Test func buildsTemporalWorkflowURL() {
+        let url = client().temporalWorkflowURL(workflowID: "greeting-123")
+        #expect(url?.absoluteString == "http://127.0.0.1:8233/namespaces/default/workflows/greeting-123")
     }
 
     private func client() -> APIClient {
@@ -44,4 +50,3 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
-
