@@ -5,7 +5,7 @@ struct JasonUIApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup("Jason UI") {
+        WindowGroup("JasonApp") {
             ContentView()
                 .environment(model)
                 .frame(minWidth: 820, minHeight: 600)
@@ -20,4 +20,3 @@ struct JasonUIApp: App {
         }
     }
 }
-

@@ -9,8 +9,10 @@ let package = Package(
         .executable(name: "JasonUI", targets: ["JasonUI"])
     ],
     targets: [
-        .executableTarget(name: "JasonUI"),
+        .executableTarget(
+            name: "JasonUI",
+            resources: [.process("Resources")]
+        ),
         .testTarget(name: "JasonUITests", dependencies: ["JasonUI"])
     ]
 )
-

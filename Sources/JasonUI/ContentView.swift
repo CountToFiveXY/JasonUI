@@ -7,11 +7,15 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Feature.allCases, selection: $selection) { feature in
-                Label(feature.title, systemImage: feature.icon)
-                    .tag(feature)
+            VStack(spacing: 0) {
+                List(Feature.allCases, selection: $selection) { feature in
+                    Label(feature.title, systemImage: feature.icon)
+                        .tag(feature)
+                }
+                Divider()
+                GitHubFooter()
             }
-            .navigationTitle("Jason UI")
+            .navigationTitle("JasonApp")
             .navigationSplitViewColumnWidth(min: 190, ideal: 220)
         } detail: {
             Group {
@@ -26,6 +30,31 @@ struct ContentView: View {
             .padding(24)
         }
         .task { await model.checkConnection() }
+    }
+}
+
+private struct GitHubFooter: View {
+    private let frontendURL = URL(string: "https://github.com/CountToFiveXY/JasonUI")!
+    private let backendURL = URL(string: "https://github.com/CountToFiveXY/JasonPython")!
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if let iconURL = Bundle.module.url(forResource: "GitHubMark", withExtension: "png"),
+               let icon = NSImage(contentsOf: iconURL) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
+            }
+            Text("GitHub")
+                .fontWeight(.medium)
+            Spacer(minLength: 4)
+            Link("Frontend", destination: frontendURL)
+            Link("Backend", destination: backendURL)
+        }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
     }
 }
 

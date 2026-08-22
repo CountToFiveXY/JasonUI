@@ -29,7 +29,7 @@ your latest code changes to the copy in Applications. It automatically:
 1. Runs the test suite.
 2. Creates a fresh release build and app bundle.
 3. Quits the currently running JasonUI app.
-4. Replaces `/Applications/JasonUI.app`.
+4. Replaces `/Applications/JasonApp.app`.
 5. Opens the updated app.
 
 If macOS asks which application should open the file, choose Terminal. If
@@ -41,5 +41,5 @@ macOS blocks the first launch, right-click the file and choose **Open**.
 ./scripts/package_app.sh
 ```
 
-This creates `.build/app-package/JasonUI.app`. Copy it to `/Applications` for
+This creates `.build/app-package/JasonApp.app`. Copy it to `/Applications` for
 normal Finder, Spotlight, and Dock access.
