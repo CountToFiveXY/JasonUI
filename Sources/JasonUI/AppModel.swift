@@ -16,6 +16,7 @@ final class AppModel {
         didSet { UserDefaults.standard.set(serverAddress, forKey: Self.serverKey) }
     }
     var isChecking = false
+    var isActivating = false
     var health: HealthResponse?
     var backendState = ServiceState.unknown
     var redisState = ServiceState.unknown
@@ -23,6 +24,7 @@ final class AppModel {
     var errorMessage: String?
 
     private static let serverKey = "serverAddress"
+    @ObservationIgnored private var servicesProcess: Process?
 
     init() {
         serverAddress = UserDefaults.standard.string(forKey: Self.serverKey)
@@ -75,6 +77,50 @@ final class AppModel {
             temporalState = .unavailable("Web UI not reachable on port 8233")
         case nil:
             temporalState = .unsupported
+        }
+    }
+
+    func activateAllServices() async {
+        if backendState == .running() {
+            await checkConnection()
+            return
+        }
+
+        let backendDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Workspace/JasonPython", isDirectory: true)
+        let startupScript = backendDirectory
+            .appendingPathComponent("scripts/run_local.sh")
+
+        guard FileManager.default.isExecutableFile(atPath: startupScript.path) else {
+            errorMessage = "Startup script was not found at \(startupScript.path)"
+            return
+        }
+
+        isActivating = true
+        errorMessage = nil
+        defer { isActivating = false }
+
+        if servicesProcess?.isRunning != true {
+            let process = Process()
+            process.executableURL = startupScript
+            process.currentDirectoryURL = backendDirectory
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+
+            do {
+                try process.run()
+                servicesProcess = process
+            } catch {
+                errorMessage = "Could not start services: \(error.localizedDescription)"
+                return
+            }
+        }
+
+        try? await Task.sleep(for: .seconds(3))
+        await checkConnection()
+
+        if backendState != .running(), servicesProcess?.isRunning == false {
+            errorMessage = "The local service startup process stopped before the backend became ready."
         }
     }
 }

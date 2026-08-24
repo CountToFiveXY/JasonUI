@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WebKit
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
@@ -24,7 +25,7 @@ struct ContentView: View {
                 case .shortener: URLShortenerView()
                 case .ranking: RankingView()
                 case .workflows: WorkflowsView()
-                case .image: ServerImageView()
+                case .quickLink: QuickLinkView()
                 }
             }
             .padding(24)
@@ -59,7 +60,7 @@ private struct GitHubFooter: View {
 }
 
 private enum Feature: String, CaseIterable, Identifiable {
-    case dashboard, shortener, ranking, workflows, image
+    case dashboard, shortener, ranking, workflows, quickLink
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -67,7 +68,7 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .shortener: "URL Shortener"
         case .ranking: "Ranking Card"
         case .workflows: "Workflows"
-        case .image: "Server Image"
+        case .quickLink: "Quick Links"
         }
     }
     var icon: String {
@@ -76,7 +77,7 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .shortener: "link"
         case .ranking: "chart.bar.doc.horizontal"
         case .workflows: "point.3.connected.trianglepath.dotted"
-        case .image: "photo"
+        case .quickLink: "link.circle"
         }
     }
 }
@@ -95,8 +96,10 @@ struct DashboardView: View {
                 ServiceStatusRow(title: "Temporal", state: model.temporalState)
                 HStack {
                     Spacer()
-                    Button("Check All Services") { Task { await model.checkConnection() } }
-                        .disabled(model.isChecking)
+                    Button(model.isActivating ? "Activating…" : "Activate All Services") {
+                        Task { await model.activateAllServices() }
+                    }
+                    .disabled(model.isChecking || model.isActivating)
                 }
             }
             if let message = model.errorMessage {
@@ -434,19 +437,39 @@ private struct ClickToEnterField: View {
     }
 }
 
-struct ServerImageView: View {
+struct QuickLinkView: View {
     @Environment(AppModel.self) private var model
     @State private var image: NSImage?
     @State private var error: String?
+    @State private var isShowingBrowser = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            HStack { Button("Load Image") { Task { await load() } }; Spacer() }
-            if let image { Image(nsImage: image).resizable().scaledToFit() }
-            else { ContentUnavailableView("No Image Loaded", systemImage: "photo") }
+        Form {
+            Section("Galaxy Lens") {
+                Button("Open Galaxy Lens") {
+                    isShowingBrowser = true
+                }
+            }
+
+            Section("Server Image") {
+                Button("Load Image") { Task { await load() } }
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 420)
+                }
+            }
             ErrorSection(message: error)
         }
-        .navigationTitle("Server Image")
+        .formStyle(.grouped)
+        .navigationTitle("Quick Links")
+        .sheet(isPresented: $isShowingBrowser) {
+            QuickLinkBrowserView(
+                url: URL(string: "https://r.galaxylens.de/")!,
+                isPresented: $isShowingBrowser
+            )
+        }
     }
 
     private func load() async {
@@ -456,6 +479,146 @@ struct ServerImageView: View {
             guard let loaded = NSImage(data: data) else { throw APIError.invalidResponse }
             image = loaded; error = nil
         } catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct QuickLinkBrowserView: View {
+    let url: URL
+    @Binding var isPresented: Bool
+    @State private var webView = WKWebView()
+    @State private var canGoBack = false
+    @State private var canGoForward = false
+    @State private var currentURL = ""
+    @State private var isLoading = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button { webView.goBack() } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(!canGoBack)
+                .help("Back")
+
+                Button { webView.goForward() } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(!canGoForward)
+                .help("Forward")
+
+                Button { webView.reload() } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Reload")
+
+                Text(currentURL.isEmpty ? url.absoluteString : currentURL)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                Spacer()
+                if isLoading { ProgressView().controlSize(.small) }
+                Button("Close") { isPresented = false }
+            }
+            .padding(12)
+
+            Divider()
+
+            EmbeddedWebView(
+                webView: webView,
+                canGoBack: $canGoBack,
+                canGoForward: $canGoForward,
+                currentURL: $currentURL,
+                isLoading: $isLoading
+            )
+        }
+        .frame(minWidth: 900, minHeight: 650)
+        .onAppear {
+            if webView.url == nil {
+                webView.load(URLRequest(url: url))
+            }
+        }
+    }
+}
+
+private struct EmbeddedWebView: NSViewRepresentable {
+    let webView: WKWebView
+    @Binding var canGoBack: Bool
+    @Binding var canGoForward: Bool
+    @Binding var currentURL: String
+    @Binding var isLoading: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            canGoBack: $canGoBack,
+            canGoForward: $canGoForward,
+            currentURL: $currentURL,
+            isLoading: $isLoading
+        )
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        webView.navigationDelegate = context.coordinator
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.update(from: webView)
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        private var canGoBack: Binding<Bool>
+        private var canGoForward: Binding<Bool>
+        private var currentURL: Binding<String>
+        private var isLoading: Binding<Bool>
+
+        init(
+            canGoBack: Binding<Bool>,
+            canGoForward: Binding<Bool>,
+            currentURL: Binding<String>,
+            isLoading: Binding<Bool>
+        ) {
+            self.canGoBack = canGoBack
+            self.canGoForward = canGoForward
+            self.currentURL = currentURL
+            self.isLoading = isLoading
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
+            update(from: webView)
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+            update(from: webView)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+            update(from: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFail navigation: WKNavigation?,
+            withError error: any Error
+        ) {
+            update(from: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation?,
+            withError error: any Error
+        ) {
+            update(from: webView)
+        }
+
+        func update(from webView: WKWebView) {
+            canGoBack.wrappedValue = webView.canGoBack
+            canGoForward.wrappedValue = webView.canGoForward
+            currentURL.wrappedValue = webView.url?.absoluteString ?? ""
+            isLoading.wrappedValue = webView.isLoading
+        }
     }
 }
 
