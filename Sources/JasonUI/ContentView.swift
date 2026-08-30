@@ -168,34 +168,12 @@ struct URLShortenerView: View {
     @State private var resultURL: URL?
     @State private var isLoading = false
     @State private var error: String?
-    @State private var isURLFieldFocused = false
 
     var body: some View {
         Form {
             Section("Create a short URL") {
                 HStack {
-                    HStack(spacing: 10) {
-                        Text("👉")
-                            .font(.title3)
-                        LeftAlignedTextField(
-                            placeholder: "Enter URL",
-                            text: $longURL,
-                            isFocused: $isURLFieldFocused
-                        )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background {
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(Color(nsColor: .textBackgroundColor))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(isURLFieldFocused ? Color.accentColor : Color.secondary.opacity(0.35), lineWidth: 1)
-                    }
-                    .environment(\.layoutDirection, .leftToRight)
+                    RoundedEntryField(placeholder: "Enter URL", text: $longURL)
                     Button("Shorten") { Task { await shorten() } }
                         .disabled(longURL.isEmpty || isLoading)
                 }
@@ -231,26 +209,44 @@ struct URLShortenerView: View {
 
 struct RankingView: View {
     @Environment(AppModel.self) private var model
-    @State private var total = 100
+    @State private var totalText = ""
     @State private var type = CardType.ch
-    @State private var car = "Galaxy"
+    @State private var car = ""
     @State private var image: NSImage?
     @State private var isLoading = false
     @State private var error: String?
     @State private var didCopy = false
+    @State private var isTotalFieldFocused = false
+    @State private var isCarFieldFocused = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 28) {
             Form {
-                TextField("Participants", value: $total, format: .number)
+                LabeledContent("Participant") {
+                    NativeTextField(
+                        placeholder: "Enter Total Participants",
+                        text: $totalText,
+                        isFocused: $isTotalFieldFocused,
+                        alignment: .right
+                    )
+                    .frame(width: 260)
+                }
                 Picker("Event Type", selection: $type) {
                     ForEach(CardType.allCases) { Text($0.displayName).tag($0) }
                 }
-                TextField("Car", text: $car)
+                LabeledContent("Car Name") {
+                    NativeTextField(
+                        placeholder: "Enter Car",
+                        text: $car,
+                        isFocused: $isCarFieldFocused,
+                        alignment: .right
+                    )
+                    .frame(width: 260)
+                }
                 HStack {
                     Spacer()
                     Button("Generate") { Task { await generate() } }
-                        .disabled(total < 1 || car.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
+                        .disabled(validTotal == nil || car.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
                 }
                 ErrorSection(message: error)
             }
@@ -278,10 +274,23 @@ struct RankingView: View {
             }
         }
         .navigationTitle("Ranking Card")
+        .onChange(of: totalText) { _, newValue in
+            let digits = newValue.filter(\.isNumber)
+            if digits != newValue { totalText = digits }
+        }
+        .onChange(of: car) { _, newValue in
+            if newValue.count > 16 { car = String(newValue.prefix(16)) }
+        }
+    }
+
+    private var validTotal: Int? {
+        guard let total = Int(totalText), total > 0 else { return nil }
+        return total
     }
 
     private func generate() async {
         guard let client = model.client else { error = APIError.invalidBaseURL.localizedDescription; return }
+        guard let total = validTotal else { return }
         isLoading = true; defer { isLoading = false }
         do {
             let data = try await client.ranking(total: total, type: type, car: car)
@@ -349,13 +358,48 @@ struct WorkflowsView: View {
     }
 }
 
-private struct LeftAlignedTextField: NSViewRepresentable {
+private struct RoundedEntryField: View {
+    let placeholder: String
+    @Binding var text: String
+    @State private var isFocused = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("👉")
+                .font(.title3)
+            NativeTextField(
+                placeholder: placeholder,
+                text: $text,
+                isFocused: $isFocused
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color(nsColor: .textBackgroundColor))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(
+                    isFocused ? Color.accentColor : Color.secondary.opacity(0.35),
+                    lineWidth: 1
+                )
+        }
+        .environment(\.layoutDirection, .leftToRight)
+    }
+}
+
+private struct NativeTextField: NSViewRepresentable {
     let placeholder: String
     @Binding var text: String
     @Binding var isFocused: Bool
+    var alignment: NSTextAlignment = .left
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, isFocused: $isFocused)
+        Coordinator(text: $text, isFocused: $isFocused, alignment: alignment)
     }
 
     func makeNSView(context: Context) -> NSTextField {
@@ -367,9 +411,9 @@ private struct LeftAlignedTextField: NSViewRepresentable {
         field.focusRingType = .none
         field.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.alignment = .left
+        field.alignment = alignment
         field.baseWritingDirection = .leftToRight
-        field.cell?.alignment = .left
+        field.cell?.alignment = alignment
         return field
     }
 
@@ -378,18 +422,24 @@ private struct LeftAlignedTextField: NSViewRepresentable {
             field.stringValue = text
         }
         field.placeholderString = placeholder
-        field.alignment = .left
+        field.alignment = alignment
         field.baseWritingDirection = .leftToRight
-        field.cell?.alignment = .left
+        field.cell?.alignment = alignment
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         @Binding private var text: String
         @Binding private var isFocused: Bool
+        private let alignment: NSTextAlignment
 
-        init(text: Binding<String>, isFocused: Binding<Bool>) {
+        init(
+            text: Binding<String>,
+            isFocused: Binding<Bool>,
+            alignment: NSTextAlignment
+        ) {
             _text = text
             _isFocused = isFocused
+            self.alignment = alignment
         }
 
         func controlTextDidChange(_ notification: Notification) {
@@ -400,7 +450,7 @@ private struct LeftAlignedTextField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ notification: Notification) {
             isFocused = true
             if let editor = (notification.object as? NSTextField)?.currentEditor() {
-                editor.alignment = .left
+                editor.alignment = alignment
                 editor.baseWritingDirection = .leftToRight
             }
         }
