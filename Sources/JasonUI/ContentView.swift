@@ -96,10 +96,18 @@ struct DashboardView: View {
                 ServiceStatusRow(title: "Temporal", state: model.temporalState)
                 HStack {
                     Spacer()
+                    Button("Check Connection") {
+                        Task { await model.checkConnection() }
+                    }
+                    .disabled(model.isChecking || model.isActivating || model.isClosing)
                     Button(model.isActivating ? "Activating…" : "Activate All Services") {
                         Task { await model.activateAllServices() }
                     }
-                    .disabled(model.isChecking || model.isActivating)
+                    .disabled(model.isChecking || model.isActivating || model.isClosing)
+                    Button(model.isClosing ? "Closing…" : "Close Server", role: .destructive) {
+                        Task { await model.closeServer() }
+                    }
+                    .disabled(model.isChecking || model.isActivating || model.isClosing)
                 }
             }
             if let message = model.errorMessage {

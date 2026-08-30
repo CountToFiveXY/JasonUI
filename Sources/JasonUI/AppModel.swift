@@ -17,6 +17,7 @@ final class AppModel {
     }
     var isChecking = false
     var isActivating = false
+    var isClosing = false
     var health: HealthResponse?
     var backendState = ServiceState.unknown
     var redisState = ServiceState.unknown
@@ -25,6 +26,7 @@ final class AppModel {
 
     private static let serverKey = "serverAddress"
     @ObservationIgnored private var servicesProcess: Process?
+    @ObservationIgnored private var servicesLogHandle: FileHandle?
 
     init() {
         serverAddress = UserDefaults.standard.string(forKey: Self.serverKey)
@@ -81,7 +83,7 @@ final class AppModel {
     }
 
     func activateAllServices() async {
-        if backendState == .running() {
+        if let client, (try? await client.health()) != nil {
             await checkConnection()
             return
         }
@@ -104,23 +106,97 @@ final class AppModel {
             let process = Process()
             process.executableURL = startupScript
             process.currentDirectoryURL = backendDirectory
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
+
+            var environment = ProcessInfo.processInfo.environment
+            let inheritedPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            environment["PATH"] = ["/opt/homebrew/bin", "/usr/local/bin", inheritedPath]
+                .joined(separator: ":")
+            process.environment = environment
 
             do {
+                let logHandle = try makeServicesLogHandle()
+                process.standardOutput = logHandle
+                process.standardError = logHandle
                 try process.run()
                 servicesProcess = process
+                servicesLogHandle = logHandle
             } catch {
                 errorMessage = "Could not start services: \(error.localizedDescription)"
                 return
             }
         }
 
-        try? await Task.sleep(for: .seconds(3))
-        await checkConnection()
-
-        if backendState != .running(), servicesProcess?.isRunning == false {
-            errorMessage = "The local service startup process stopped before the backend became ready."
+        for _ in 0..<30 {
+            try? await Task.sleep(for: .milliseconds(500))
+            if let client, (try? await client.health()) != nil {
+                await checkConnection()
+                return
+            }
+            if servicesProcess?.isRunning == false { break }
         }
+
+        await checkConnection()
+        let logPath = servicesLogURL().path
+        errorMessage = "Services did not become ready. Review the startup log at \(logPath)"
+    }
+
+    func closeServer() async {
+        isClosing = true
+        errorMessage = nil
+        defer { isClosing = false }
+
+        if servicesProcess?.isRunning == true {
+            servicesProcess?.terminate()
+        } else {
+            let startupScript = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Workspace/JasonPython/scripts/run_local.sh")
+            let stopProcess = Process()
+            stopProcess.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+            stopProcess.arguments = ["-TERM", "-f", startupScript.path]
+            do {
+                try stopProcess.run()
+                stopProcess.waitUntilExit()
+            } catch {
+                errorMessage = "Could not close the server: \(error.localizedDescription)"
+                return
+            }
+        }
+
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let client else { break }
+            if (try? await client.health()) == nil { break }
+        }
+
+        servicesLogHandle?.closeFile()
+        servicesLogHandle = nil
+        servicesProcess = nil
+        health = nil
+        backendState = .unavailable("Stopped")
+        redisState = .unknown
+        temporalState = .unavailable("Stopped")
+    }
+
+    private func servicesLogURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/JasonApp", isDirectory: true)
+            .appendingPathComponent("services.log")
+    }
+
+    private func makeServicesLogHandle() throws -> FileHandle {
+        let logURL = servicesLogURL()
+        try FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: logURL)
+        try handle.seekToEnd()
+        if let marker = "\n--- JasonApp activation \(Date()) ---\n".data(using: .utf8) {
+            try handle.write(contentsOf: marker)
+        }
+        return handle
     }
 }
