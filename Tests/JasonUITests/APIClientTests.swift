@@ -21,7 +21,7 @@ struct APIClientTests {
         }
         let response = try await client().shorten(url: "https://example.com/path")
         #expect(response.shortUrl == "go/3FzaP09x")
-        #expect(client().shortURL(for: response.shortUrl)?.absoluteString == "http://127.0.0.1:8080/go/3FzaP09x")
+        #expect(client().shortURL(for: response.shortUrl)?.absoluteString == "http://127.0.0.1:8000/go/3FzaP09x")
     }
 
     @Test func buildsTemporalWorkflowURL() {
@@ -32,7 +32,7 @@ struct APIClientTests {
     private func client() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
-        return APIClient(baseURL: URL(string: "http://127.0.0.1:8080")!, session: URLSession(configuration: configuration))
+        return APIClient(baseURL: URL(string: "http://127.0.0.1:8000")!, session: URLSession(configuration: configuration))
     }
 }
 

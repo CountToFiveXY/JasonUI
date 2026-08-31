@@ -5,6 +5,7 @@ import WebKit
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: Feature = .dashboard
+    @State private var updateManager = AppUpdateManager()
 
     var body: some View {
         NavigationSplitView {
@@ -14,7 +15,7 @@ struct ContentView: View {
                         .tag(feature)
                 }
                 Divider()
-                GitHubFooter()
+                GitHubFooter(updateManager: updateManager)
             }
             .navigationTitle("JasonApp")
             .navigationSplitViewColumnWidth(min: 190, ideal: 220)
@@ -31,31 +32,78 @@ struct ContentView: View {
             .padding(24)
         }
         .task { await model.checkConnection() }
+        .task { await updateManager.monitorForUpdates() }
     }
 }
 
 private struct GitHubFooter: View {
-    private let frontendURL = URL(string: "https://github.com/CountToFiveXY/JasonUI")!
-    private let backendURL = URL(string: "https://github.com/CountToFiveXY/JasonPython")!
+    let updateManager: AppUpdateManager
+    private let repositoriesURL = URL(string: "https://github.com/CountToFiveXY?tab=repositories")!
 
     var body: some View {
-        HStack(spacing: 7) {
-            if let iconURL = Bundle.module.url(forResource: "GitHubMark", withExtension: "png"),
-               let icon = NSImage(contentsOf: iconURL) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 20, height: 20)
+        VStack(alignment: .trailing, spacing: 5) {
+            HStack(spacing: 7) {
+                Link(destination: repositoriesURL) {
+                    HStack(spacing: 7) {
+                        if let iconURL = Bundle.module.url(forResource: "GitHubMark", withExtension: "png"),
+                           let icon = NSImage(contentsOf: iconURL) {
+                            Image(nsImage: icon)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 20, height: 20)
+                        }
+                        Text("GitHub")
+                            .fontWeight(.medium)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 4)
+                updateControl
             }
-            Text("GitHub")
-                .fontWeight(.medium)
-            Spacer(minLength: 4)
-            Link("Frontend", destination: frontendURL)
-            Link("Backend", destination: backendURL)
+
+            if let errorMessage = updateManager.errorMessage {
+                CopyableErrorText(message: errorMessage)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
+            }
         }
         .font(.caption)
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
+    }
+
+    @ViewBuilder
+    private var updateControl: some View {
+        if updateManager.isUpdating {
+            VStack(alignment: .trailing, spacing: 3) {
+                ProgressView(value: updateManager.progress)
+                    .frame(width: 86)
+                Text(updateManager.progressLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        } else if updateManager.updateAvailable {
+            Button("Update") {
+                Task { await updateManager.installUpdate() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        } else {
+            Button {
+                Task { await updateManager.checkForUpdates() }
+            } label: {
+                HStack(spacing: 5) {
+                    if updateManager.isChecking {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(updateManager.isChecking ? "Checking" : updateManager.releaseLabel)
+                }
+            }
+            .controlSize(.small)
+            .disabled(updateManager.isChecking)
+        }
     }
 }
 
@@ -111,7 +159,7 @@ struct DashboardView: View {
                 }
             }
             if let message = model.errorMessage {
-                Section("Connection Error") { Text(message).foregroundStyle(.red) }
+                Section("Connection Error") { CopyableErrorText(message: message) }
             }
         }
         .formStyle(.grouped)
@@ -129,7 +177,9 @@ private struct ServiceStatusRow: View {
             indicator
             Text(title)
             Spacer()
-            Text(detail).foregroundStyle(.secondary)
+            Text(detail)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
         }
     }
 
@@ -683,6 +733,22 @@ private struct EmbeddedWebView: NSViewRepresentable {
 struct ErrorSection: View {
     let message: String?
     var body: some View {
-        if let message { Section("Error") { Text(message).foregroundStyle(.red) } }
+        if let message { Section("Error") { CopyableErrorText(message: message) } }
+    }
+}
+
+private struct CopyableErrorText: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .foregroundStyle(.red)
+            .textSelection(.enabled)
+            .contextMenu {
+                Button("Copy Error") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(message, forType: .string)
+                }
+            }
     }
 }

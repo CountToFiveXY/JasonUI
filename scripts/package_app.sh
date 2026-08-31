@@ -14,6 +14,8 @@ rm -rf "$build_dir"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" "$iconset_dir"
 cp "$project_dir/.build/release/JasonUI" "$app_dir/Contents/MacOS/JasonUI"
 cp "$project_dir/Resources/Info.plist" "$app_dir/Contents/Info.plist"
+source_commit=$(git -C "$project_dir" rev-parse HEAD 2>/dev/null || echo development)
+plutil -replace JasonSourceCommit -string "$source_commit" "$app_dir/Contents/Info.plist"
 if [[ -d "$project_dir/.build/release/JasonUI_JasonUI.bundle" ]]; then
     ditto "$project_dir/.build/release/JasonUI_JasonUI.bundle" \
         "$app_dir/Contents/Resources/JasonUI_JasonUI.bundle"

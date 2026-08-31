@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -25,12 +26,19 @@ final class AppModel {
     var errorMessage: String?
 
     private static let serverKey = "serverAddress"
+    private static let backendDirectoryKey = "backendDirectory"
     @ObservationIgnored private var servicesProcess: Process?
     @ObservationIgnored private var servicesLogHandle: FileHandle?
+    @ObservationIgnored private var activeBackendDirectory: URL?
 
     init() {
-        serverAddress = UserDefaults.standard.string(forKey: Self.serverKey)
-            ?? "http://127.0.0.1:8080"
+        let savedAddress = UserDefaults.standard.string(forKey: Self.serverKey)
+        if savedAddress == nil || savedAddress == "http://127.0.0.1:8080" {
+            serverAddress = "http://127.0.0.1:8000"
+            UserDefaults.standard.set(serverAddress, forKey: Self.serverKey)
+        } else {
+            serverAddress = savedAddress!
+        }
     }
 
     var client: APIClient? {
@@ -88,15 +96,10 @@ final class AppModel {
             return
         }
 
-        let backendDirectory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Workspace/JasonPython", isDirectory: true)
-        let startupScript = backendDirectory
-            .appendingPathComponent("scripts/run_local.sh")
-
-        guard FileManager.default.isExecutableFile(atPath: startupScript.path) else {
-            errorMessage = "Startup script was not found at \(startupScript.path)"
+        guard let backendDirectory = await resolveBackendDirectory(allowSelection: true) else {
             return
         }
+        let startupScript = backendDirectory.appendingPathComponent("scripts/run_local.sh")
 
         isActivating = true
         errorMessage = nil
@@ -126,8 +129,9 @@ final class AppModel {
             }
         }
 
-        for _ in 0..<30 {
+        for _ in 0..<1_200 {
             try? await Task.sleep(for: .milliseconds(500))
+            adoptBackendPort(from: backendDirectory)
             if let client, (try? await client.health()) != nil {
                 await checkConnection()
                 return
@@ -137,7 +141,12 @@ final class AppModel {
 
         await checkConnection()
         let logPath = servicesLogURL().path
-        errorMessage = "Services did not become ready. Review the startup log at \(logPath)"
+        let logExcerpt = latestServicesLogExcerpt()
+        errorMessage = if logExcerpt.isEmpty {
+            "Services did not become ready. Review the startup log at \(logPath)"
+        } else {
+            "Services did not become ready:\n\(logExcerpt)\n\nFull log: \(logPath)"
+        }
     }
 
     func closeServer() async {
@@ -148,8 +157,10 @@ final class AppModel {
         if servicesProcess?.isRunning == true {
             servicesProcess?.terminate()
         } else {
-            let startupScript = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Workspace/JasonPython/scripts/run_local.sh")
+            guard let backendDirectory = await resolveBackendDirectory(allowSelection: false) else {
+                return
+            }
+            let startupScript = backendDirectory.appendingPathComponent("scripts/run_local.sh")
             let stopProcess = Process()
             stopProcess.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
             stopProcess.arguments = ["-TERM", "-f", startupScript.path]
@@ -177,10 +188,121 @@ final class AppModel {
         temporalState = .unavailable("Stopped")
     }
 
+    private func resolveBackendDirectory(allowSelection: Bool) async -> URL? {
+        if let activeBackendDirectory,
+           Self.validBackendDirectory(in: [activeBackendDirectory]) != nil {
+            return activeBackendDirectory
+        }
+
+        let fileManager = FileManager.default
+        let homeDirectory = fileManager.homeDirectoryForCurrentUser
+        let currentDirectory = URL(
+            fileURLWithPath: fileManager.currentDirectoryPath,
+            isDirectory: true
+        )
+        var candidates: [URL] = []
+
+        if let savedPath = UserDefaults.standard.string(forKey: Self.backendDirectoryKey) {
+            candidates.append(URL(fileURLWithPath: savedPath, isDirectory: true))
+        }
+        if let environmentPath = ProcessInfo.processInfo.environment["JASONPYTHON_PATH"] {
+            candidates.append(URL(fileURLWithPath: environmentPath, isDirectory: true))
+        }
+        candidates += [
+            homeDirectory.appendingPathComponent("JasonApp/JasonPython", isDirectory: true),
+            homeDirectory.appendingPathComponent("Workspace/JasonPython", isDirectory: true),
+            homeDirectory.appendingPathComponent("Developer/JasonPython", isDirectory: true),
+            currentDirectory,
+            currentDirectory.appendingPathComponent("JasonPython", isDirectory: true),
+            currentDirectory.deletingLastPathComponent()
+                .appendingPathComponent("JasonPython", isDirectory: true)
+        ]
+
+        if let detectedDirectory = Self.validBackendDirectory(in: candidates) {
+            rememberBackendDirectory(detectedDirectory)
+            return detectedDirectory
+        }
+
+        guard allowSelection else {
+            errorMessage = "Could not find the JasonPython project folder."
+            return nil
+        }
+        guard let selectedDirectory = await chooseBackendDirectory() else {
+            errorMessage = "JasonPython project folder was not selected."
+            return nil
+        }
+        guard let validDirectory = Self.validBackendDirectory(in: [selectedDirectory]) else {
+            errorMessage = "The selected folder does not contain an executable scripts/run_local.sh file."
+            return nil
+        }
+
+        rememberBackendDirectory(validDirectory)
+        return validDirectory
+    }
+
+    nonisolated static func validBackendDirectory(in candidates: [URL]) -> URL? {
+        let fileManager = FileManager.default
+        var visitedPaths = Set<String>()
+
+        for candidate in candidates {
+            let directory = candidate.standardizedFileURL.resolvingSymlinksInPath()
+            guard visitedPaths.insert(directory.path).inserted else { continue }
+            let script = directory.appendingPathComponent("scripts/run_local.sh")
+            if fileManager.isExecutableFile(atPath: script.path) {
+                return directory
+            }
+        }
+        return nil
+    }
+
+    private func rememberBackendDirectory(_ directory: URL) {
+        activeBackendDirectory = directory
+        UserDefaults.standard.set(directory.path, forKey: Self.backendDirectoryKey)
+    }
+
+    private func chooseBackendDirectory() async -> URL? {
+        await withCheckedContinuation { continuation in
+            let panel = NSOpenPanel()
+            panel.title = "Choose the JasonPython Project Folder"
+            panel.message = "Select the folder containing scripts/run_local.sh."
+            panel.prompt = "Choose"
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = false
+            panel.begin { response in
+                continuation.resume(returning: response == .OK ? panel.url : nil)
+            }
+        }
+    }
+
     private func servicesLogURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/JasonApp", isDirectory: true)
             .appendingPathComponent("services.log")
+    }
+
+    private func adoptBackendPort(from backendDirectory: URL) {
+        let portFile = backendDirectory.appendingPathComponent(".venv/jasonapp-api-port")
+        guard let value = try? String(contentsOf: portFile, encoding: .utf8),
+              let port = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...65_535).contains(port) else { return }
+
+        let localAddress = "http://127.0.0.1:\(port)"
+        if serverAddress != localAddress {
+            serverAddress = localAddress
+        }
+    }
+
+    private func latestServicesLogExcerpt() -> String {
+        guard let data = try? Data(contentsOf: servicesLogURL()),
+              let contents = String(data: data, encoding: .utf8) else { return "" }
+        let latestActivation = contents.components(separatedBy: "--- JasonApp activation").last ?? contents
+        return latestActivation
+            .split(separator: "\n")
+            .suffix(8)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func makeServicesLogHandle() throws -> FileHandle {
