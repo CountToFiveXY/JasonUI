@@ -117,6 +117,7 @@ fi
 
 codesign --verify --deep --strict "$installed_app"
 defaults write com.jason.JasonUI backendDirectory "$backend_dir"
+defaults write com.jason.JasonUI frontendDirectory "$project_dir"
 saved_server=$(defaults read com.jason.JasonUI serverAddress 2>/dev/null || true)
 if [[ -z "$saved_server" ]] || [[ "$saved_server" == "http://127.0.0.1:8080" ]]; then
     defaults write com.jason.JasonUI serverAddress "http://127.0.0.1:8000"

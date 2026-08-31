@@ -30,6 +30,11 @@ final class AppUpdateManager {
         }
     }
 
+    private struct UpdatePreparationError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     var state: State = .idle
     var progress = 0.0
     var progressLabel = ""
@@ -38,9 +43,9 @@ final class AppUpdateManager {
     private static let commitURL = URL(
         string: "https://api.github.com/repos/CountToFiveXY/JasonUI/commits/main"
     )!
-    private static let cloneURL = "https://github.com/CountToFiveXY/JasonUI.git"
     private static let installedAppURL = URL(fileURLWithPath: "/Applications/JasonApp.app")
     private static let checkInterval = Duration.seconds(15 * 60)
+    private static let frontendDirectoryKey = "frontendDirectory"
 
     var updateAvailable: Bool { state == .updateAvailable }
     var isChecking: Bool { state == .checking }
@@ -97,20 +102,32 @@ final class AppUpdateManager {
         let fileManager = FileManager.default
         let updateRoot = fileManager.temporaryDirectory
             .appendingPathComponent("JasonApp-Update-\(UUID().uuidString)", isDirectory: true)
-        let checkoutURL = updateRoot.appendingPathComponent("JasonUI", isDirectory: true)
-        let packagedAppURL = checkoutURL
-            .appendingPathComponent(".build/app-package/JasonApp.app", isDirectory: true)
         let stagedAppURL = URL(fileURLWithPath: "/Applications/.JasonApp-update-\(UUID().uuidString).app")
         var oldAppBackupURL: URL?
 
         do {
             try fileManager.createDirectory(at: updateRoot, withIntermediateDirectories: true)
+            let checkoutURL = try await resolveFrontendDirectory(allowSelection: true)
+            let packagedAppURL = checkoutURL
+                .appendingPathComponent(".build/app-package/JasonApp.app", isDirectory: true)
+
+            let changes = try await Self.runCommand(
+                executable: "/usr/bin/git",
+                arguments: ["status", "--porcelain"],
+                currentDirectory: checkoutURL
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard changes.isEmpty else {
+                throw UpdatePreparationError(
+                    message: "JasonUI has local changes. Commit or discard them before updating."
+                )
+            }
 
             progress = 0.10
-            progressLabel = "Downloading…"
+            progressLabel = "Updating source…"
             _ = try await Self.runCommand(
                 executable: "/usr/bin/git",
-                arguments: ["clone", "--depth", "1", "--branch", "main", Self.cloneURL, checkoutURL.path]
+                arguments: ["pull", "--ff-only", "origin", "main"],
+                currentDirectory: checkoutURL
             )
 
             progress = 0.30
@@ -203,14 +220,72 @@ final class AppUpdateManager {
             return commit
         }
 
-        let sourceURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("JasonApp/JasonUI", isDirectory: true)
+        let sourceURL = try await resolveFrontendDirectory(allowSelection: false)
         let output = try await Self.runCommand(
             executable: "/usr/bin/git",
             arguments: ["rev-parse", "HEAD"],
             currentDirectory: sourceURL
         )
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func resolveFrontendDirectory(allowSelection: Bool) async throws -> URL {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+
+        if let savedPath = UserDefaults.standard.string(forKey: Self.frontendDirectoryKey) {
+            candidates.append(URL(fileURLWithPath: savedPath, isDirectory: true))
+        }
+        if let backendPath = UserDefaults.standard.string(forKey: "backendDirectory") {
+            candidates.append(
+                URL(fileURLWithPath: backendPath, isDirectory: true)
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("JasonUI", isDirectory: true)
+            )
+        }
+        candidates.append(
+            fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent("Workspace/JasonUI", isDirectory: true)
+        )
+
+        if let directory = Self.validFrontendDirectory(in: candidates) {
+            UserDefaults.standard.set(directory.path, forKey: Self.frontendDirectoryKey)
+            return directory
+        }
+
+        if allowSelection {
+            let panel = NSOpenPanel()
+            panel.title = "Choose the JasonUI repository"
+            panel.message = "Select the local JasonUI folder to update and rebuild JasonApp."
+            panel.prompt = "Choose JasonUI"
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            if panel.runModal() == .OK,
+               let selected = panel.url,
+               let directory = Self.validFrontendDirectory(in: [selected]) {
+                UserDefaults.standard.set(directory.path, forKey: Self.frontendDirectoryKey)
+                return directory
+            }
+        }
+
+        throw UpdatePreparationError(
+            message: "Could not find the local JasonUI repository. Run Install JasonApp.command again."
+        )
+    }
+
+    nonisolated static func validFrontendDirectory(in candidates: [URL]) -> URL? {
+        let fileManager = FileManager.default
+        for candidate in candidates {
+            let directory = candidate.standardizedFileURL.resolvingSymlinksInPath()
+            let package = directory.appendingPathComponent("Package.swift")
+            let gitDirectory = directory.appendingPathComponent(".git", isDirectory: true)
+            if fileManager.fileExists(atPath: package.path),
+               fileManager.fileExists(atPath: gitDirectory.path) {
+                return directory
+            }
+        }
+        return nil
     }
 
     private nonisolated static func runCommand(

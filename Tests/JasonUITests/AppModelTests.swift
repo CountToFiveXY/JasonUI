@@ -27,4 +27,30 @@ struct AppModelTests {
         let result = AppModel.validBackendDirectory(in: [invalidDirectory, validDirectory])
         #expect(result == validDirectory.standardizedFileURL.resolvingSymlinksInPath())
     }
+
+    @Test func findsFrontendGitRepository() throws {
+        let fileManager = FileManager.default
+        let testRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("JasonApp-UpdateTests-\(UUID().uuidString)", isDirectory: true)
+        let invalidDirectory = testRoot.appendingPathComponent("invalid", isDirectory: true)
+        let validDirectory = testRoot.appendingPathComponent("JasonUI", isDirectory: true)
+        defer { try? fileManager.removeItem(at: testRoot) }
+
+        try fileManager.createDirectory(at: invalidDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            at: validDirectory.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        #expect(
+            fileManager.createFile(
+                atPath: validDirectory.appendingPathComponent("Package.swift").path,
+                contents: Data()
+            )
+        )
+
+        let result = AppUpdateManager.validFrontendDirectory(
+            in: [invalidDirectory, validDirectory]
+        )
+        #expect(result == validDirectory.standardizedFileURL.resolvingSymlinksInPath())
+    }
 }
