@@ -45,7 +45,7 @@ private struct GitHubFooter: View {
             HStack(spacing: 7) {
                 Link(destination: repositoriesURL) {
                     HStack(spacing: 7) {
-                        if let iconURL = Bundle.module.url(forResource: "GitHubMark", withExtension: "png"),
+                        if let iconURL = Bundle.main.url(forResource: "GitHubMark", withExtension: "png"),
                            let icon = NSImage(contentsOf: iconURL) {
                             Image(nsImage: icon)
                                 .resizable()
