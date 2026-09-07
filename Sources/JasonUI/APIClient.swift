@@ -15,6 +15,20 @@ struct WorkflowResponse: Decodable, Equatable {
     }
 }
 
+struct OrderResponse: Decodable, Equatable {
+    let id: String
+    let userID: String
+    let created: String
+    let workflowID: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userID = "user_id"
+        case created
+        case workflowID = "workflow_id"
+    }
+}
+
 struct ShortenResponse: Decodable, Equatable {
     let shortUrl: String
 }
@@ -93,8 +107,8 @@ struct APIClient: Sendable {
         try await request(path: "workflows/hello", method: "POST")
     }
 
-    func greeting(name: String) async throws -> WorkflowResponse {
-        try await request(path: "workflows/greeting", method: "POST", body: ["name": name])
+    func order(userID: String) async throws -> OrderResponse {
+        try await request(path: "v1/order", method: "POST", body: ["user_id": userID])
     }
 
     func displayImage() async throws -> Data {

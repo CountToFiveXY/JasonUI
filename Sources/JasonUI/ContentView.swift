@@ -367,36 +367,52 @@ struct RankingView: View {
 
 struct WorkflowsView: View {
     @Environment(AppModel.self) private var model
-    @State private var name = ""
-    @State private var response: WorkflowResponse?
+    @State private var userID = ""
+    @State private var workflowResponse: WorkflowResponse?
+    @State private var orderResponse: OrderResponse?
     @State private var isLoading = false
     @State private var error: String?
-    @FocusState private var isNameFieldFocused: Bool
+    @FocusState private var isUserIDFieldFocused: Bool
 
     var body: some View {
         Form {
             Section("Temporal") {
-                Button("Run Hello Workflow") { Task { await run { try await $0.hello() } } }
+                Button("Run Hello Workflow") { Task { await runHello() } }
                 HStack {
-                    Button("Run Greeting") { Task { await run { try await $0.greeting(name: name) } } }
-                        .disabled(name.isEmpty)
+                    Button("Place Order") { Task { await placeOrder() } }
+                        .disabled(userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Spacer()
                     ClickToEnterField(
-                        prompt: "Enter your name",
-                        text: $name,
-                        isFocused: $isNameFieldFocused
+                        prompt: "Enter user ID",
+                        text: $userID,
+                        isFocused: $isUserIDFieldFocused
                     )
                 }
             }
-            if let response {
+            if let workflowResponse {
                 Section("Result") {
-                    LabeledContent("Message", value: response.result)
+                    LabeledContent("Message", value: workflowResponse.result)
                     LabeledContent("Workflow ID") {
-                        if let url = model.client?.temporalWorkflowURL(workflowID: response.workflowID) {
-                            Link(response.workflowID, destination: url)
+                        if let url = model.client?.temporalWorkflowURL(workflowID: workflowResponse.workflowID) {
+                            Link(workflowResponse.workflowID, destination: url)
                                 .help("Open this workflow in Temporal UI")
                         } else {
-                            Text(response.workflowID).textSelection(.enabled)
+                            Text(workflowResponse.workflowID).textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+            if let orderResponse {
+                Section("Order") {
+                    LabeledContent("Order ID", value: orderResponse.id)
+                    LabeledContent("User ID", value: orderResponse.userID)
+                    LabeledContent("Created", value: orderResponse.created)
+                    LabeledContent("Workflow ID") {
+                        if let url = model.client?.temporalWorkflowURL(workflowID: orderResponse.workflowID) {
+                            Link(orderResponse.workflowID, destination: url)
+                                .help("Open this workflow in Temporal UI")
+                        } else {
+                            Text(orderResponse.workflowID).textSelection(.enabled)
                         }
                     }
                 }
@@ -408,10 +424,27 @@ struct WorkflowsView: View {
         .navigationTitle("Workflows")
     }
 
-    private func run(_ operation: (APIClient) async throws -> WorkflowResponse) async {
+    private func runHello() async {
         guard let client = model.client else { error = APIError.invalidBaseURL.localizedDescription; return }
         isLoading = true; defer { isLoading = false }
-        do { response = try await operation(client); error = nil }
+        do {
+            workflowResponse = try await client.hello()
+            orderResponse = nil
+            error = nil
+        }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func placeOrder() async {
+        guard let client = model.client else { error = APIError.invalidBaseURL.localizedDescription; return }
+        let trimmedUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedUserID.isEmpty else { return }
+        isLoading = true; defer { isLoading = false }
+        do {
+            orderResponse = try await client.order(userID: trimmedUserID)
+            workflowResponse = nil
+            error = nil
+        }
         catch { self.error = error.localizedDescription }
     }
 }
