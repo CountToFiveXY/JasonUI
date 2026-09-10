@@ -141,6 +141,7 @@ struct DashboardView: View {
                     .textFieldStyle(.roundedBorder)
                 ServiceStatusRow(title: "Backend Server", state: model.backendState)
                 ServiceStatusRow(title: "Redis", state: model.redisState)
+                ServiceStatusRow(title: "Kafka", state: model.kafkaState)
                 ServiceStatusRow(title: "Temporal", state: model.temporalState)
                 HStack {
                     Spacer()

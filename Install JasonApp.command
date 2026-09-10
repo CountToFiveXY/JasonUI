@@ -98,6 +98,13 @@ for _ in {1..30}; do
     pgrep -x JasonUI >/dev/null || break
     sleep 0.1
 done
+if pgrep -x JasonUI >/dev/null; then
+    pkill -TERM -x JasonUI 2>/dev/null || true
+    for _ in {1..30}; do
+        pgrep -x JasonUI >/dev/null || break
+        sleep 0.1
+    done
+fi
 
 rm -rf "$staged_app"
 ditto "$source_app" "$staged_app"

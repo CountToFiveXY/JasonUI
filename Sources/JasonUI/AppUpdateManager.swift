@@ -180,10 +180,7 @@ final class AppUpdateManager {
 
             progress = 1.0
             progressLabel = "Relaunching…"
-            _ = try await Self.runCommand(
-                executable: "/usr/bin/open",
-                arguments: ["-n", Self.installedAppURL.path]
-            )
+            try scheduleSingleInstanceRelaunch()
             NSApplication.shared.terminate(nil)
         } catch {
             if fileManager.fileExists(atPath: stagedAppURL.path) {
@@ -199,6 +196,31 @@ final class AppUpdateManager {
             progressLabel = ""
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func scheduleSingleInstanceRelaunch() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-c",
+            """
+            current_pid="$1"
+            app_path="$2"
+            while kill -0 "$current_pid" 2>/dev/null; do sleep 0.1; done
+            /usr/bin/pkill -TERM -x JasonUI 2>/dev/null || true
+            for _ in {1..30}; do
+                /usr/bin/pgrep -x JasonUI >/dev/null 2>&1 || break
+                sleep 0.1
+            done
+            exec /usr/bin/open "$app_path"
+            """,
+            "JasonAppRelaunch",
+            String(ProcessInfo.processInfo.processIdentifier),
+            Self.installedAppURL.path,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
     }
 
     private func fetchRemoteCommit() async throws -> String {

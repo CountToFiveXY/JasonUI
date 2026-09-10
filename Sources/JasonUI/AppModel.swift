@@ -22,6 +22,7 @@ final class AppModel {
     var health: HealthResponse?
     var backendState = ServiceState.unknown
     var redisState = ServiceState.unknown
+    var kafkaState = ServiceState.unknown
     var temporalState = ServiceState.unknown
     var errorMessage: String?
 
@@ -54,12 +55,14 @@ final class AppModel {
             health = nil
             backendState = .unavailable("Invalid server URL")
             redisState = .unknown
+            kafkaState = .unknown
             temporalState = .unsupported
             return
         }
         isChecking = true
         backendState = .checking
         redisState = .checking
+        kafkaState = .checking
         temporalState = .checking
         defer { isChecking = false }
 
@@ -72,11 +75,19 @@ final class AppModel {
             redisState = health?.redis.lowercased() == "connected"
                 ? .running("Connected")
                 : .unavailable(health?.redis)
+            if let kafka = health?.kafka {
+                kafkaState = kafka.lowercased() == "connected"
+                    ? .running("Connected")
+                    : .unavailable(kafka)
+            } else {
+                kafkaState = .unsupported
+            }
             errorMessage = nil
         } catch {
             health = nil
             backendState = .unavailable(error.localizedDescription)
             redisState = .unknown
+            kafkaState = .unknown
             errorMessage = error.localizedDescription
         }
 
@@ -185,6 +196,7 @@ final class AppModel {
         health = nil
         backendState = .unavailable("Stopped")
         redisState = .unknown
+        kafkaState = .unavailable("Stopped")
         temporalState = .unavailable("Stopped")
     }
 

@@ -3,6 +3,7 @@ import Foundation
 struct HealthResponse: Decodable, Equatable {
     let status: String
     let redis: String
+    let kafka: String?
 }
 
 struct WorkflowResponse: Decodable, Equatable {

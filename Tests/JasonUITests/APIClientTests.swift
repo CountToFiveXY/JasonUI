@@ -7,10 +7,10 @@ struct APIClientTests {
     @Test func decodesHealthResponse() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.url?.path == "/health")
-            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"status":"OK","redis":"connected"}"#.utf8))
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"status":"OK","redis":"connected","kafka":"connected"}"#.utf8))
         }
         let response = try await client().health()
-        #expect(response == HealthResponse(status: "OK", redis: "connected"))
+        #expect(response == HealthResponse(status: "OK", redis: "connected", kafka: "connected"))
     }
 
     @Test func sendsShortenRequest() async throws {
