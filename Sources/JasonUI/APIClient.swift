@@ -29,6 +29,14 @@ struct OrderResponse: Decodable, Equatable {
     }
 }
 
+struct KafkaMessageResponse: Decodable, Equatable {
+    let id: String
+    let status: String
+    let topic: String
+    let partition: Int
+    let offset: Int
+}
+
 struct ShortenResponse: Decodable, Equatable {
     let shortUrl: String
 }
@@ -111,7 +119,15 @@ struct APIClient: Sendable {
         try await request(path: "v1/order", method: "POST", body: ["user_id": userID])
     }
 
-    func displayImage() async throws -> Data {
+    func sendOrderSuccess(orderID: String) async throws -> KafkaMessageResponse {
+        try await request(
+            path: "v1/messages",
+            method: "POST",
+            body: ["id": orderID, "status": "SUCCESS"]
+        )
+    }
+
+    func image() async throws -> Data {
         try await dataRequest(path: "display", method: "GET")
     }
 
@@ -142,6 +158,14 @@ struct APIClient: Sendable {
         components.query = nil
         components.fragment = nil
         return components.url?.appendingPathComponent(workflowID)
+    }
+
+    func firestoreOrderURL(orderID: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "console.firebase.google.com"
+        components.path = "/project/jasonapp-xm0830/firestore/databases/-default-/data/~2Forders~2F\(orderID)"
+        return components.url
     }
 
     private func request<Response: Decodable, Body: Encodable>(

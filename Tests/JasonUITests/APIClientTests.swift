@@ -29,6 +29,14 @@ struct APIClientTests {
         #expect(url?.absoluteString == "http://127.0.0.1:8233/namespaces/default/workflows/greeting-123")
     }
 
+    @Test func buildsFirestoreOrderURL() {
+        let url = client().firestoreOrderURL(orderID: "order-123")
+        #expect(
+            url?.absoluteString ==
+                "https://console.firebase.google.com/project/jasonapp-xm0830/firestore/databases/-default-/data/~2Forders~2Forder-123"
+        )
+    }
+
     @Test func sendsOrderUserIDAndDecodesResponse() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
@@ -53,6 +61,34 @@ struct APIClientTests {
         #expect(response.id == "order-123")
         #expect(response.userID == "user-123")
         #expect(response.workflowID == "order-123")
+    }
+
+    @Test func sendsKafkaOrderSuccessAndDecodesMetadata() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/v1/messages")
+            let body = try #require(requestBodyData(request))
+            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+            #expect(json == ["id": "order-123", "status": "SUCCESS"])
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 202,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let data = Data(
+                #"{"id":"order-123","status":"SUCCESS","topic":"backend-messages","partition":0,"offset":4}"#.utf8
+            )
+            return (response, data)
+        }
+
+        let response = try await client().sendOrderSuccess(orderID: "order-123")
+
+        #expect(response.id == "order-123")
+        #expect(response.status == "SUCCESS")
+        #expect(response.topic == "backend-messages")
+        #expect(response.partition == 0)
+        #expect(response.offset == 4)
     }
 
     private func client() -> APIClient {

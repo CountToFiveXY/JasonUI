@@ -368,11 +368,14 @@ struct RankingView: View {
 struct WorkflowsView: View {
     @Environment(AppModel.self) private var model
     @State private var userID = ""
+    @State private var kafkaOrderID = ""
     @State private var workflowResponse: WorkflowResponse?
     @State private var orderResponse: OrderResponse?
+    @State private var kafkaResponse: KafkaMessageResponse?
     @State private var isLoading = false
     @State private var error: String?
     @FocusState private var isUserIDFieldFocused: Bool
+    @FocusState private var isKafkaOrderIDFieldFocused: Bool
 
     var body: some View {
         Form {
@@ -388,6 +391,21 @@ struct WorkflowsView: View {
                         isFocused: $isUserIDFieldFocused
                     )
                 }
+            }
+            Section("Kafka") {
+                HStack {
+                    Button("Send Success Message") { Task { await sendKafkaMessage() } }
+                        .disabled(
+                            kafkaOrderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        )
+                    Spacer()
+                    ClickToEnterField(
+                        prompt: "Enter order ID",
+                        text: $kafkaOrderID,
+                        isFocused: $isKafkaOrderIDFieldFocused
+                    )
+                }
+                LabeledContent("Status", value: "SUCCESS")
             }
             if let workflowResponse {
                 Section("Result") {
@@ -406,7 +424,12 @@ struct WorkflowsView: View {
                 Section("Order") {
                     LabeledContent("Order ID", value: orderResponse.id)
                     LabeledContent("User ID", value: orderResponse.userID)
-                    LabeledContent("Created", value: orderResponse.created)
+                    LabeledContent("Firestore") {
+                        if let url = model.client?.firestoreOrderURL(orderID: orderResponse.id) {
+                            Link("Open document", destination: url)
+                                .help("Open this order in the Firebase console")
+                        }
+                    }
                     LabeledContent("Workflow ID") {
                         if let url = model.client?.temporalWorkflowURL(workflowID: orderResponse.workflowID) {
                             Link(orderResponse.workflowID, destination: url)
@@ -415,6 +438,15 @@ struct WorkflowsView: View {
                             Text(orderResponse.workflowID).textSelection(.enabled)
                         }
                     }
+                }
+            }
+            if let kafkaResponse {
+                Section("Kafka Message") {
+                    LabeledContent("Order ID", value: kafkaResponse.id)
+                    LabeledContent("Status", value: kafkaResponse.status)
+                    LabeledContent("Topic", value: kafkaResponse.topic)
+                    LabeledContent("Partition", value: String(kafkaResponse.partition))
+                    LabeledContent("Offset", value: String(kafkaResponse.offset))
                 }
             }
             ErrorSection(message: error)
@@ -441,8 +473,27 @@ struct WorkflowsView: View {
         guard !trimmedUserID.isEmpty else { return }
         isLoading = true; defer { isLoading = false }
         do {
-            orderResponse = try await client.order(userID: trimmedUserID)
+            let response = try await client.order(userID: trimmedUserID)
+            orderResponse = response
+            kafkaOrderID = response.id
+            kafkaResponse = nil
             workflowResponse = nil
+            error = nil
+        }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func sendKafkaMessage() async {
+        guard let client = model.client else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return
+        }
+        let trimmedOrderID = kafkaOrderID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOrderID.isEmpty else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            kafkaResponse = try await client.sendOrderSuccess(orderID: trimmedOrderID)
             error = nil
         }
         catch { self.error = error.localizedDescription }
@@ -616,7 +667,7 @@ struct QuickLinkView: View {
     private func load() async {
         guard let client = model.client else { error = APIError.invalidBaseURL.localizedDescription; return }
         do {
-            let data = try await client.displayImage()
+            let data = try await client.image()
             guard let loaded = NSImage(data: data) else { throw APIError.invalidResponse }
             image = loaded; error = nil
         } catch { self.error = error.localizedDescription }
