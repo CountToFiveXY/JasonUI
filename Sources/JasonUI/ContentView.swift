@@ -269,11 +269,74 @@ struct URLShortenerView: View {
     }
 }
 
+/// `NativeTextField` inside the same visible box as `BoxedTextField`.
+///
+/// The ranking fields keep the AppKit field, which pins the writing direction
+/// left-to-right; only the box around it is new.
+private struct BoxedNativeField: View {
+    let placeholder: String
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    var width: CGFloat
+    var alignment: NSTextAlignment = .left
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 7) }
+
+    var body: some View {
+        NativeTextField(
+            placeholder: placeholder,
+            text: $text,
+            isFocused: $isFocused,
+            alignment: alignment
+        )
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .frame(width: width)
+        .background(shape.fill(Color(nsColor: .textBackgroundColor)))
+        .overlay(
+            shape.strokeBorder(
+                isFocused ? Color.accentColor : Color.secondary.opacity(0.4),
+                lineWidth: isFocused ? 2 : 1
+            )
+        )
+    }
+}
+
 struct RankingView: View {
+    private static let slots = 3
+
+    var body: some View {
+        ScrollView([.vertical, .horizontal]) {
+            HStack(alignment: .top, spacing: 18) {
+                ForEach(1...Self.slots, id: \.self) { slot in
+                    RankingCardSection(slot: slot)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.top, 2)
+        }
+        // A two-axis scroll view centres content smaller than its viewport, so
+        // the anchor is what actually pins the cards to the top-left.
+        .defaultScrollAnchor(.topLeading)
+        .navigationTitle("Ranking Card")
+    }
+}
+
+/// One complete card generator. Several sit side by side so a set of cards can
+/// be produced in one pass, each keeping its own remembered inputs.
+private struct RankingCardSection: View {
     @Environment(AppModel.self) private var model
-    @State private var totalText = ""
-    @State private var type = CardType.ch
-    @State private var car = ""
+
+    private static let cardWidth: CGFloat = 288
+    private static let fieldWidth: CGFloat = 256
+
+    private let slot: Int
+
+    // Remembered across launches, keyed per card.
+    @AppStorage private var type: CardType
+    @AppStorage private var car: String
+    @AppStorage private var totalText: String
+
     @State private var image: NSImage?
     @State private var isLoading = false
     @State private var error: String?
@@ -281,61 +344,82 @@ struct RankingView: View {
     @State private var isTotalFieldFocused = false
     @State private var isCarFieldFocused = false
 
+    init(slot: Int) {
+        self.slot = slot
+        // Each card starts on a different event type, most-used first; changing
+        // one is remembered.
+        let order: [CardType] = [.ch, .sp, .se]
+        let defaultType = order[(slot - 1) % order.count]
+        _type = AppStorage(wrappedValue: defaultType, "rankingCardType.\(slot)")
+        _car = AppStorage(wrappedValue: "", "rankingCarName.\(slot)")
+        _totalText = AppStorage(wrappedValue: "", "rankingTotalParticipants.\(slot)")
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 28) {
-            Form {
-                LabeledContent("Participant") {
-                    NativeTextField(
-                        placeholder: "Enter Total Participants",
-                        text: $totalText,
-                        isFocused: $isTotalFieldFocused,
-                        alignment: .right
-                    )
-                    .frame(width: 260)
+        GroupBox("Card \(slot)") {
+            VStack(alignment: .leading, spacing: 12) {
+                // Labels sit above their fields: a column this narrow has no
+                // room for the side-by-side form layout.
+                labeled("Event Type") {
+                    Picker("", selection: $type) {
+                        ForEach(CardType.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(width: Self.fieldWidth, alignment: .leading)
                 }
-                Picker("Event Type", selection: $type) {
-                    ForEach(CardType.allCases) { Text($0.displayName).tag($0) }
-                }
-                LabeledContent("Car Name") {
-                    NativeTextField(
+                labeled("Car Name") {
+                    BoxedNativeField(
                         placeholder: "Enter Car",
                         text: $car,
                         isFocused: $isCarFieldFocused,
-                        alignment: .right
+                        width: Self.fieldWidth
                     )
-                    .frame(width: 260)
                 }
-                HStack {
-                    Spacer()
-                    Button("Generate") { Task { await generate() } }
-                        .disabled(validTotal == nil || car.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
+                labeled("Total Participants") {
+                    BoxedNativeField(
+                        placeholder: "Enter Total Participants",
+                        text: $totalText,
+                        isFocused: $isTotalFieldFocused,
+                        width: Self.fieldWidth
+                    )
                 }
-                ErrorSection(message: error)
-            }
-            .formStyle(.grouped)
-            .frame(width: 420)
-            if let image {
-                VStack(spacing: 12) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 228, maxHeight: 380)
-                        .shadow(radius: 8)
-                    Button {
-                        copyImage(image)
-                    } label: {
-                        Text(didCopy ? "Copied" : "Copy")
-                            .frame(maxWidth: .infinity)
+
+                Button(isLoading ? "Generating…" : "Generate") {
+                    Task { await generate() }
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity)
+                .disabled(!canGenerate)
+
+                if let error {
+                    CopyableErrorText(message: error)
+                        .font(.caption)
+                }
+
+                if let image {
+                    VStack(spacing: 10) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 228, maxHeight: 380)
+                            .shadow(radius: 6)
+                        Button {
+                            copyImage(image)
+                        } label: {
+                            Text(didCopy ? "Copied" : "Copy")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .frame(width: 228)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
                 }
-            } else {
-                ContentUnavailableView("No Ranking Card", systemImage: "photo", description: Text("Generate a card to preview it."))
             }
+            .padding(6)
+            .frame(width: Self.cardWidth, alignment: .topLeading)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .navigationTitle("Ranking Card")
         .onChange(of: totalText) { _, newValue in
             let digits = newValue.filter(\.isNumber)
             if digits != newValue { totalText = digits }
@@ -343,6 +427,25 @@ struct RankingView: View {
         .onChange(of: car) { _, newValue in
             if newValue.count > 16 { car = String(newValue.prefix(16)) }
         }
+    }
+
+    @ViewBuilder
+    private func labeled(
+        _ title: String,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    private var canGenerate: Bool {
+        validTotal != nil
+            && !car.trimmingCharacters(in: .whitespaces).isEmpty
+            && !isLoading
     }
 
     private var validTotal: Int? {
@@ -533,9 +636,10 @@ struct LeaderboardView: View {
                     Text(isLoading ? "Loading maps…" : "No maps yet. Add one to start recording times.")
                         .foregroundStyle(.secondary)
                 } else {
+                    // Listed in the game's release order, exactly as the API returns them.
                     Picker("Map", selection: $selectedMapID) {
                         ForEach(maps) { map in
-                            Text(map.name).tag(Optional(map.id))
+                            Text(map.displayName).tag(Optional(map.id))
                         }
                     }
                 }
@@ -557,8 +661,13 @@ struct LeaderboardView: View {
                     TrackLeaderboardSection(
                         track: track,
                         cars: cars,
-                        onRecord: { car, seconds in
-                            await record(trackID: track.id, car: car, seconds: seconds)
+                        onRecord: { car, trick, seconds in
+                            await record(
+                                trackID: track.id,
+                                car: car,
+                                trick: trick,
+                                seconds: seconds
+                            )
                         },
                         onDelete: { car in
                             await delete(trackID: track.id, car: car)
@@ -640,13 +749,19 @@ struct LeaderboardView: View {
         } catch { return error.localizedDescription }
     }
 
-    private func record(trackID: String, car: String, seconds: Double) async -> Bool {
+    private func record(
+        trackID: String,
+        car: String,
+        trick: String,
+        seconds: Double
+    ) async -> Bool {
         let saved = await update { client, mapID in
             try await client.recordLapTime(
                 mapID: mapID,
                 trackID: trackID,
                 car: car,
-                seconds: seconds
+                seconds: seconds,
+                trick: trick
             )
         }
         let isNewCar = !cars.contains { $0.name.caseInsensitiveCompare(car) == .orderedSame }
@@ -676,6 +791,7 @@ struct LeaderboardView: View {
                 leaderboard = MapLeaderboard(
                     id: current.id,
                     name: current.name,
+                    chineseName: current.chineseName,
                     tracks: current.tracks.map { $0.id == track.id ? track : $0 }
                 )
             }
@@ -731,24 +847,29 @@ private enum CarChoice: Hashable {
 private struct TrackLeaderboardSection: View {
     let track: TrackLeaderboard
     let cars: [CarSummary]
-    let onRecord: (String, Double) async -> Bool
+    let onRecord: (String, String, Double) async -> Bool
     let onDelete: (String) async -> Bool
 
     @State private var carChoice = CarChoice.unselected
     @State private var car = ""
+    @State private var trick = ""
     @State private var timeText = ""
     @State private var isSaving = false
 
+    private static let trickColumnWidth: CGFloat = 168
     private static let timeColumnWidth: CGFloat = 112
 
     var body: some View {
-        Section(track.name) {
+        Section(track.displayName) {
             Grid(horizontalSpacing: 14, verticalSpacing: 0) {
                 GridRow {
                     Text("Car")
                         .gridColumnAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Time")
+                    Text("Trick")
+                        .gridColumnAlignment(.leading)
+                        .frame(width: Self.trickColumnWidth, alignment: .leading)
+                    Text("Time(s)")
                         .gridColumnAlignment(.trailing)
                         .frame(width: Self.timeColumnWidth, alignment: .trailing)
                     Text("")
@@ -774,6 +895,11 @@ private struct TrackLeaderboardSection: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(entry.displayTrick)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(width: Self.trickColumnWidth, alignment: .leading)
                             Text(entry.displayTime)
                                 .font(.system(.body, design: .monospaced))
                                 .fontWeight(entry.rank == 1 ? .semibold : .regular)
@@ -814,6 +940,11 @@ private struct TrackLeaderboardSection: View {
                         }
                     }
                     BoxedTextField(
+                        placeholder: "Trick",
+                        text: $trick,
+                        width: Self.trickColumnWidth
+                    )
+                    BoxedTextField(
                         placeholder: "18.520",
                         text: $timeText,
                         width: Self.timeColumnWidth,
@@ -849,9 +980,11 @@ private struct TrackLeaderboardSection: View {
         }
         isSaving = true
         defer { isSaving = false }
-        if await onRecord(chosenCar, seconds) {
+        let note = trick.trimmingCharacters(in: .whitespacesAndNewlines)
+        if await onRecord(chosenCar, note, seconds) {
             carChoice = .unselected
             car = ""
+            trick = ""
             timeText = ""
         }
     }

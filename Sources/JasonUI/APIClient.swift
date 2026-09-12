@@ -54,6 +54,21 @@ struct CarListResponse: Decodable, Equatable {
 struct MapSummary: Decodable, Equatable, Identifiable, Hashable {
     let id: String
     let name: String
+    /// Optional, so a backend predating the field still decodes.
+    let chineseName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case chineseName = "chinese_name"
+    }
+
+    var displayName: String { leaderboardDisplayName(name, chineseName) }
+}
+
+/// `Name (中文名)`, or just the name while no translation is recorded.
+func leaderboardDisplayName(_ name: String, _ chineseName: String?) -> String {
+    guard let chineseName, !chineseName.isEmpty else { return name }
+    return "\(name) (\(chineseName))"
 }
 
 struct MapListResponse: Decodable, Equatable {
@@ -64,26 +79,45 @@ struct LapTimeEntry: Decodable, Equatable, Identifiable {
     let rank: Int
     let car: String
     let seconds: Double
+    /// Optional, so a backend predating the field still decodes.
+    let trick: String?
 
     var id: String { car }
 
-    /// The recorded time as the leaderboard shows it, for example `19.357s`.
+    /// The recorded time as the leaderboard shows it, for example `19.357`.
     ///
     /// Three decimals: lap times are recorded to a thousandth of a second, and
-    /// rounding further would make distinct records look identical.
-    var displayTime: String { String(format: "%.3fs", seconds) }
+    /// rounding further would make distinct records look identical. The unit
+    /// lives in the column heading rather than on every row.
+    var displayTime: String { String(format: "%.3f", seconds) }
+
+    var displayTrick: String { trick ?? "" }
 }
 
 struct TrackLeaderboard: Decodable, Equatable, Identifiable {
     let id: String
     let name: String
+    let chineseName: String?
     let times: [LapTimeEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, times
+        case chineseName = "chinese_name"
+    }
+
+    var displayName: String { leaderboardDisplayName(name, chineseName) }
 }
 
 struct MapLeaderboard: Decodable, Equatable, Identifiable {
     let id: String
     let name: String
+    let chineseName: String?
     let tracks: [TrackLeaderboard]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, tracks
+        case chineseName = "chinese_name"
+    }
 }
 
 enum CardType: String, CaseIterable, Identifiable, Codable {
@@ -206,13 +240,14 @@ struct APIClient: Sendable {
         mapID: String,
         trackID: String,
         car: String,
-        seconds: Double
+        seconds: Double,
+        trick: String
     ) async throws -> TrackLeaderboard {
-        struct Body: Encodable { let car: String; let seconds: Double }
+        struct Body: Encodable { let car: String; let seconds: Double; let trick: String }
         return try await request(
             path: lapTimesPath(mapID: mapID, trackID: trackID),
             method: "PUT",
-            body: Body(car: car, seconds: seconds)
+            body: Body(car: car, seconds: seconds, trick: trick)
         )
     }
 

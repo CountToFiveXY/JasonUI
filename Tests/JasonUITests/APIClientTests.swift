@@ -105,16 +105,17 @@ struct APIClientTests {
             #expect(request.url?.path == "/v1/leaderboard/maps")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"maps":[{"id":"new-york","name":"New York"},{"id":"tokyo","name":"Tokyo"}]}"#.utf8)
+                Data(#"{"maps":[{"id":"san-francisco","name":"San Francisco","chinese_name":"旧金山"},{"id":"tokyo","name":"Tokyo"}]}"#.utf8)
             )
         }
 
         let maps = try await client().maps()
 
-        #expect(maps == [
-            MapSummary(id: "new-york", name: "New York"),
-            MapSummary(id: "tokyo", name: "Tokyo"),
-        ])
+        // Release order comes from the API; the client must not re-sort.
+        #expect(maps.map(\.id) == ["san-francisco", "tokyo"])
+        #expect(maps.first?.displayName == "San Francisco (旧金山)")
+        // A map with no translation yet shows just its name.
+        #expect(maps.last?.displayName == "Tokyo")
     }
 
     @Test func sendsMapWithItsTwoTracks() async throws {
@@ -149,7 +150,7 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.url?.path == "/v1/leaderboard/maps/new-york")
             let data = Data(
-                #"{"id":"new-york","name":"New York","tracks":[{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62},{"rank":2,"car":"C3","seconds":20.1}]},{"id":"harbor-sprint","name":"Harbor Sprint","times":[]}]}"#.utf8
+                #"{"id":"new-york","name":"New York","tracks":[{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62,"trick":"double shockwave"},{"rank":2,"car":"C3","seconds":20.1}]},{"id":"harbor-sprint","name":"Harbor Sprint","times":[]}]}"#.utf8
             )
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -162,9 +163,12 @@ struct APIClientTests {
         let fastest = try #require(leaderboard.tracks.first?.times.first)
         #expect(fastest.rank == 1)
         #expect(fastest.car == "C2")
-        #expect(fastest.displayTime == "19.620s")
+        #expect(fastest.displayTime == "19.620")
+        #expect(fastest.displayTrick == "double shockwave")
         let slower = try #require(leaderboard.tracks.first?.times.last)
-        #expect(slower.displayTime == "20.100s")
+        #expect(slower.displayTime == "20.100")
+        // A time stored before the trick field existed decodes as blank.
+        #expect(slower.displayTrick == "")
         #expect(leaderboard.tracks.last?.times.isEmpty == true)
     }
 
@@ -176,8 +180,9 @@ struct APIClientTests {
             let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(json["car"] as? String == "C2")
             #expect(json["seconds"] as? Double == 19.62)
+            #expect(json["trick"] as? String == "double shockwave")
             let data = Data(
-                #"{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62}]}"#.utf8
+                #"{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62,"trick":"double shockwave"}]}"#.utf8
             )
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -189,7 +194,8 @@ struct APIClientTests {
             mapID: "new-york",
             trackID: "a-park-in-a-run",
             car: "C2",
-            seconds: 19.62
+            seconds: 19.62,
+            trick: "double shockwave"
         )
 
         let cars = track.times.map(\.car)
