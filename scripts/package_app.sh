@@ -7,6 +7,7 @@ app_dir="$build_dir/JasonApp.app"
 iconset_dir="$build_dir/AppIcon.iconset"
 source_icon="$project_dir/Resources/AppIcon.png"
 github_icon="$project_dir/Sources/JasonUI/Resources/GitHubMark.png"
+galaxy_brand="$project_dir/Sources/JasonUI/Resources/GalaxyArcherBrand.png"
 
 cd "$project_dir"
 swift build -c release
@@ -16,6 +17,7 @@ mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" "$iconset_dir"
 cp "$project_dir/.build/release/JasonUI" "$app_dir/Contents/MacOS/JasonUI"
 cp "$project_dir/Resources/Info.plist" "$app_dir/Contents/Info.plist"
 cp "$github_icon" "$app_dir/Contents/Resources/GitHubMark.png"
+cp "$galaxy_brand" "$app_dir/Contents/Resources/GalaxyArcherBrand.png"
 source_commit=$(git -C "$project_dir" rev-parse HEAD 2>/dev/null || echo development)
 plutil -replace JasonSourceCommit -string "$source_commit" "$app_dir/Contents/Info.plist"
 

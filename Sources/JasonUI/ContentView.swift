@@ -6,13 +6,22 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: Feature = .dashboard
     @State private var updateManager = AppUpdateManager()
+    @AppStorage("sidebarAsphaltExpanded") private var isAsphaltExpanded = true
 
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
-                List(Feature.allCases, selection: $selection) { feature in
-                    Label(feature.title, systemImage: feature.icon)
-                        .tag(feature)
+                List(selection: $selection) {
+                    sidebarRow(.dashboard)
+                    sidebarRow(.ledger)
+                    sidebarRow(.shortener)
+                    DisclosureGroup(isExpanded: $isAsphaltExpanded) {
+                        ForEach(Feature.asphaltLegends) { sidebarRow($0) }
+                    } label: {
+                        Label("Asphalt Legends", systemImage: "flag.checkered")
+                    }
+                    sidebarRow(.workflows)
+                    sidebarRow(.quickLink)
                 }
                 Divider()
                 GitHubFooter(updateManager: updateManager)
@@ -23,6 +32,7 @@ struct ContentView: View {
             Group {
                 switch selection {
                 case .dashboard: DashboardView()
+                case .ledger: LedgerView()
                 case .shortener: URLShortenerView()
                 case .ranking: RankingView()
                 case .leaderboard: LeaderboardView()
@@ -34,6 +44,11 @@ struct ContentView: View {
         }
         .task { await model.checkConnection() }
         .task { await updateManager.monitorForUpdates() }
+    }
+
+    private func sidebarRow(_ feature: Feature) -> some View {
+        Label(feature.title, systemImage: feature.icon)
+            .tag(feature)
     }
 }
 
@@ -109,11 +124,15 @@ private struct GitHubFooter: View {
 }
 
 private enum Feature: String, CaseIterable, Identifiable {
-    case dashboard, shortener, ranking, leaderboard, workflows, quickLink
+    case dashboard, ledger, shortener, ranking, leaderboard, workflows, quickLink
     var id: String { rawValue }
+
+    /// The features grouped under the Asphalt Legends heading in the sidebar.
+    static let asphaltLegends: [Feature] = [.ranking, .leaderboard]
     var title: String {
         switch self {
         case .dashboard: "Server"
+        case .ledger: "Ledger"
         case .shortener: "URL Shortener"
         case .ranking: "Ranking Card"
         case .leaderboard: "Leaderboard"
@@ -124,6 +143,7 @@ private enum Feature: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .dashboard: "server.rack"
+        case .ledger: "list.bullet.rectangle.portrait"
         case .shortener: "link"
         case .ranking: "chart.bar.doc.horizontal"
         case .leaderboard: "stopwatch"
