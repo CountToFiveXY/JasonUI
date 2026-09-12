@@ -25,6 +25,7 @@ struct ContentView: View {
                 case .dashboard: DashboardView()
                 case .shortener: URLShortenerView()
                 case .ranking: RankingView()
+                case .leaderboard: LeaderboardView()
                 case .workflows: WorkflowsView()
                 case .quickLink: QuickLinkView()
                 }
@@ -108,13 +109,14 @@ private struct GitHubFooter: View {
 }
 
 private enum Feature: String, CaseIterable, Identifiable {
-    case dashboard, shortener, ranking, workflows, quickLink
+    case dashboard, shortener, ranking, leaderboard, workflows, quickLink
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: "Server"
         case .shortener: "URL Shortener"
         case .ranking: "Ranking Card"
+        case .leaderboard: "Leaderboard"
         case .workflows: "Workflows"
         case .quickLink: "Quick Links"
         }
@@ -124,6 +126,7 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .dashboard: "server.rack"
         case .shortener: "link"
         case .ranking: "chart.bar.doc.horizontal"
+        case .leaderboard: "stopwatch"
         case .workflows: "point.3.connected.trianglepath.dotted"
         case .quickLink: "link.circle"
         }
@@ -498,6 +501,431 @@ struct WorkflowsView: View {
             error = nil
         }
         catch { self.error = error.localizedDescription }
+    }
+}
+
+/// Parses the lap times typed into the leaderboard.
+enum LeaderboardTime {
+    /// Accepts `19.62`, `19,62`, and `19.62s`.
+    static func seconds(from text: String) -> Double? {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if value.hasSuffix("s") { value.removeLast() }
+        value = value.replacingOccurrences(of: ",", with: ".")
+        guard let seconds = Double(value), seconds > 0, seconds < 3_600 else { return nil }
+        return seconds
+    }
+}
+
+struct LeaderboardView: View {
+    @Environment(AppModel.self) private var model
+    @State private var maps: [MapSummary] = []
+    @State private var cars: [CarSummary] = []
+    @State private var selectedMapID: String?
+    @State private var leaderboard: MapLeaderboard?
+    @State private var isLoading = false
+    @State private var isAddingMap = false
+    @State private var error: String?
+
+    var body: some View {
+        Form {
+            Section("Map") {
+                if maps.isEmpty {
+                    Text(isLoading ? "Loading maps…" : "No maps yet. Add one to start recording times.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Map", selection: $selectedMapID) {
+                        ForEach(maps) { map in
+                            Text(map.name).tag(Optional(map.id))
+                        }
+                    }
+                }
+                HStack(spacing: 10) {
+                    if isLoading && !maps.isEmpty { ProgressView().controlSize(.small) }
+                    Spacer()
+                    if let mapID = selectedMapID,
+                       let url = model.client?.firestoreMapURL(mapID: mapID) {
+                        Link("Open in Firestore", destination: url)
+                            .help("Open this map in the Firebase console")
+                    }
+                    Button("Reload") { Task { await loadMaps() } }
+                    Button("Add Map") { isAddingMap = true }
+                }
+            }
+
+            if let leaderboard {
+                ForEach(leaderboard.tracks) { track in
+                    TrackLeaderboardSection(
+                        track: track,
+                        cars: cars,
+                        onRecord: { car, seconds in
+                            await record(trackID: track.id, car: car, seconds: seconds)
+                        },
+                        onDelete: { car in
+                            await delete(trackID: track.id, car: car)
+                        }
+                    )
+                    .id("\(leaderboard.id)/\(track.id)")
+                }
+            }
+
+            ErrorSection(message: error)
+        }
+        .formStyle(.grouped)
+        // A leaderboard reads as a document: let it fill a narrow window, but
+        // stop it stretching across a very wide one.
+        .frame(maxWidth: 860)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .navigationTitle("Leaderboard")
+        .task { await loadMaps() }
+        .task { await loadCars() }
+        .onChange(of: selectedMapID) { _, _ in
+            Task { await loadLeaderboard() }
+        }
+        .sheet(isPresented: $isAddingMap) {
+            AddMapSheet(isPresented: $isAddingMap) { name, firstTrack, secondTrack in
+                await create(name: name, tracks: [firstTrack, secondTrack])
+            }
+        }
+    }
+
+    private func loadMaps() async {
+        guard let client = model.client else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            maps = try await client.maps()
+            error = nil
+            if let selectedMapID, maps.contains(where: { $0.id == selectedMapID }) {
+                await loadLeaderboard()
+            } else {
+                selectedMapID = maps.first?.id
+            }
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func loadCars() async {
+        guard let client = model.client else { return }
+        cars = (try? await client.cars()) ?? cars
+    }
+
+    private func loadLeaderboard() async {
+        guard let mapID = selectedMapID else {
+            leaderboard = nil
+            return
+        }
+        guard let client = model.client else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            leaderboard = try await client.mapLeaderboard(mapID: mapID)
+            error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func create(name: String, tracks: [String]) async -> String? {
+        guard let client = model.client else { return APIError.invalidBaseURL.localizedDescription }
+        do {
+            let created = try await client.createMap(name: name, tracks: tracks)
+            maps = try await client.maps()
+            leaderboard = created
+            selectedMapID = created.id
+            error = nil
+            return nil
+        } catch { return error.localizedDescription }
+    }
+
+    private func record(trackID: String, car: String, seconds: Double) async -> Bool {
+        let saved = await update { client, mapID in
+            try await client.recordLapTime(
+                mapID: mapID,
+                trackID: trackID,
+                car: car,
+                seconds: seconds
+            )
+        }
+        let isNewCar = !cars.contains { $0.name.caseInsensitiveCompare(car) == .orderedSame }
+        if saved && isNewCar {
+            await loadCars()
+        }
+        return saved
+    }
+
+    private func delete(trackID: String, car: String) async -> Bool {
+        await update { client, mapID in
+            try await client.deleteLapTime(mapID: mapID, trackID: trackID, car: car)
+        }
+    }
+
+    /// Runs a track mutation and swaps the refreshed track into the leaderboard.
+    private func update(
+        _ mutation: (APIClient, String) async throws -> TrackLeaderboard
+    ) async -> Bool {
+        guard let client = model.client, let mapID = selectedMapID else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return false
+        }
+        do {
+            let track = try await mutation(client, mapID)
+            if let current = leaderboard {
+                leaderboard = MapLeaderboard(
+                    id: current.id,
+                    name: current.name,
+                    tracks: current.tracks.map { $0.id == track.id ? track : $0 }
+                )
+            }
+            error = nil
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+}
+
+/// A text field with a filled background and border, so it reads as something
+/// you can click. Plain `TextField`s render borderless inside a grouped `Form`.
+private struct BoxedTextField: View {
+    let placeholder: String
+    @Binding var text: String
+    var width: CGFloat? = nil
+    var alignment: TextAlignment = .leading
+    @FocusState private var isFocused: Bool
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 7) }
+
+    var body: some View {
+        TextField("", text: $text, prompt: Text(placeholder))
+            .textFieldStyle(.plain)
+            .labelsHidden()
+            .multilineTextAlignment(alignment)
+            .focused($isFocused)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .frame(width: width)
+            .frame(maxWidth: width == nil ? .infinity : nil)
+            .background(shape.fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(
+                shape.strokeBorder(
+                    isFocused ? Color.accentColor : Color.secondary.opacity(0.4),
+                    lineWidth: isFocused ? 2 : 1
+                )
+            )
+            .contentShape(shape)
+            .onTapGesture { isFocused = true }
+    }
+}
+
+/// What the car selector in the input row is currently set to.
+private enum CarChoice: Hashable {
+    case unselected
+    case existing(String)
+    case other
+}
+
+private struct TrackLeaderboardSection: View {
+    let track: TrackLeaderboard
+    let cars: [CarSummary]
+    let onRecord: (String, Double) async -> Bool
+    let onDelete: (String) async -> Bool
+
+    @State private var carChoice = CarChoice.unselected
+    @State private var car = ""
+    @State private var timeText = ""
+    @State private var isSaving = false
+
+    private static let timeColumnWidth: CGFloat = 112
+
+    var body: some View {
+        Section(track.name) {
+            Grid(horizontalSpacing: 14, verticalSpacing: 0) {
+                GridRow {
+                    Text("Car")
+                        .gridColumnAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Time")
+                        .gridColumnAlignment(.trailing)
+                        .frame(width: Self.timeColumnWidth, alignment: .trailing)
+                    Text("")
+                        .gridColumnAlignment(.trailing)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 6)
+
+                Divider().gridCellUnsizedAxes(.horizontal)
+
+                if track.times.isEmpty {
+                    Text("No times recorded yet.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 9)
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                } else {
+                    ForEach(track.times) { entry in
+                        GridRow {
+                            Text(entry.car)
+                                .fontWeight(entry.rank == 1 ? .semibold : .regular)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(entry.displayTime)
+                                .font(.system(.body, design: .monospaced))
+                                .fontWeight(entry.rank == 1 ? .semibold : .regular)
+                                .textSelection(.enabled)
+                                .frame(width: Self.timeColumnWidth, alignment: .trailing)
+                            Button {
+                                Task { _ = await onDelete(entry.car) }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove \(entry.car) from this track")
+                        }
+                        .padding(.vertical, 7)
+
+                        Divider().gridCellUnsizedAxes(.horizontal)
+                    }
+                }
+
+                GridRow {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("", selection: $carChoice) {
+                            Text("Select car").tag(CarChoice.unselected)
+                            if !cars.isEmpty {
+                                Divider()
+                                ForEach(cars) { car in
+                                    Text(car.name).tag(CarChoice.existing(car.name))
+                                }
+                            }
+                            Divider()
+                            Text("Other…").tag(CarChoice.other)
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if carChoice == .other {
+                            BoxedTextField(placeholder: "New car", text: $car, width: 200)
+                        }
+                    }
+                    BoxedTextField(
+                        placeholder: "18.520",
+                        text: $timeText,
+                        width: Self.timeColumnWidth,
+                        alignment: .trailing
+                    )
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task { await save() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSave || isSaving)
+                }
+                .padding(.top, 9)
+            }
+        }
+    }
+
+    /// The car the input row will save: a pick from the list, or a typed name.
+    private var chosenCar: String {
+        switch carChoice {
+        case .unselected: ""
+        case let .existing(name): name
+        case .other: car.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private var canSave: Bool {
+        !chosenCar.isEmpty && LeaderboardTime.seconds(from: timeText) != nil
+    }
+
+    private func save() async {
+        guard let seconds = LeaderboardTime.seconds(from: timeText), !chosenCar.isEmpty else {
+            return
+        }
+        isSaving = true
+        defer { isSaving = false }
+        if await onRecord(chosenCar, seconds) {
+            carChoice = .unselected
+            car = ""
+            timeText = ""
+        }
+    }
+}
+
+private struct AddMapSheet: View {
+    @Binding var isPresented: Bool
+    let onCreate: (String, String, String) async -> String?
+
+    @State private var name = ""
+    @State private var firstTrack = ""
+    @State private var secondTrack = ""
+    @State private var isSaving = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Add Map")
+                .font(.title3.weight(.semibold))
+            Text("Every map has exactly two tracks. Maps and tracks cannot be renamed or removed later.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Form {
+                LabeledContent("Map name") {
+                    BoxedTextField(placeholder: "New York", text: $name, width: 250)
+                }
+                LabeledContent("First track") {
+                    BoxedTextField(placeholder: "Railroad Bustle", text: $firstTrack, width: 250)
+                }
+                LabeledContent("Second track") {
+                    BoxedTextField(placeholder: "The Tunnel", text: $secondTrack, width: 250)
+                }
+            }
+            .formStyle(.grouped)
+            if let error {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+                    .font(.callout)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { isPresented = false }
+                Button(isSaving ? "Adding…" : "Add Map") {
+                    Task { await create() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canCreate || isSaving)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+    }
+
+    private var canCreate: Bool {
+        let tracks = [firstTrack, secondTrack].map(Self.trimmed)
+        return !Self.trimmed(name).isEmpty
+            && tracks.allSatisfy { !$0.isEmpty }
+            && tracks[0].caseInsensitiveCompare(tracks[1]) != .orderedSame
+    }
+
+    private func create() async {
+        isSaving = true
+        defer { isSaving = false }
+        error = await onCreate(
+            Self.trimmed(name),
+            Self.trimmed(firstTrack),
+            Self.trimmed(secondTrack)
+        )
+        if error == nil { isPresented = false }
+    }
+
+    private static func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

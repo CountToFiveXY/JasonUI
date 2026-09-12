@@ -73,9 +73,11 @@ If macOS blocks the command, right-click it and select **Open**.
 
 ### Step 4: Start the services
 
-1. Open **JasonApp** from Applications.
-2. Select **Server**.
-3. Click **Activate All Services**.
+The installer opens JasonApp for you when it finishes. To start it later, open
+**JasonApp** from Applications.
+
+1. Select **Server**.
+2. Click **Activate All Services**.
 
 The app starts Redis, Temporal, the Temporal worker, and JasonPython. Use
 **Check Connection** to refresh their status and **Close Server** to stop them.

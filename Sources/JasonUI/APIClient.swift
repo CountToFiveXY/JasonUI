@@ -42,6 +42,50 @@ struct ShortenResponse: Decodable, Equatable {
     let shortUrl: String
 }
 
+struct CarSummary: Decodable, Equatable, Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
+struct CarListResponse: Decodable, Equatable {
+    let cars: [CarSummary]
+}
+
+struct MapSummary: Decodable, Equatable, Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
+struct MapListResponse: Decodable, Equatable {
+    let maps: [MapSummary]
+}
+
+struct LapTimeEntry: Decodable, Equatable, Identifiable {
+    let rank: Int
+    let car: String
+    let seconds: Double
+
+    var id: String { car }
+
+    /// The recorded time as the leaderboard shows it, for example `19.357s`.
+    ///
+    /// Three decimals: lap times are recorded to a thousandth of a second, and
+    /// rounding further would make distinct records look identical.
+    var displayTime: String { String(format: "%.3fs", seconds) }
+}
+
+struct TrackLeaderboard: Decodable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    let times: [LapTimeEntry]
+}
+
+struct MapLeaderboard: Decodable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    let tracks: [TrackLeaderboard]
+}
+
 enum CardType: String, CaseIterable, Identifiable, Codable {
     case se = "SE"
     case sp = "SP"
@@ -128,6 +172,61 @@ struct APIClient: Sendable {
         )
     }
 
+    func maps() async throws -> [MapSummary] {
+        let response: MapListResponse = try await request(
+            path: "v1/leaderboard/maps",
+            method: "GET"
+        )
+        return response.maps
+    }
+
+    /// Every car holding a time anywhere, for the car selector.
+    func cars() async throws -> [CarSummary] {
+        let response: CarListResponse = try await request(
+            path: "v1/leaderboard/cars",
+            method: "GET"
+        )
+        return response.cars
+    }
+
+    func createMap(name: String, tracks: [String]) async throws -> MapLeaderboard {
+        struct Body: Encodable { let name: String; let tracks: [String] }
+        return try await request(
+            path: "v1/leaderboard/maps",
+            method: "POST",
+            body: Body(name: name, tracks: tracks)
+        )
+    }
+
+    func mapLeaderboard(mapID: String) async throws -> MapLeaderboard {
+        try await request(path: "v1/leaderboard/maps/\(mapID)", method: "GET")
+    }
+
+    func recordLapTime(
+        mapID: String,
+        trackID: String,
+        car: String,
+        seconds: Double
+    ) async throws -> TrackLeaderboard {
+        struct Body: Encodable { let car: String; let seconds: Double }
+        return try await request(
+            path: lapTimesPath(mapID: mapID, trackID: trackID),
+            method: "PUT",
+            body: Body(car: car, seconds: seconds)
+        )
+    }
+
+    func deleteLapTime(
+        mapID: String,
+        trackID: String,
+        car: String
+    ) async throws -> TrackLeaderboard {
+        try await request(
+            path: lapTimesPath(mapID: mapID, trackID: trackID) + "/" + car,
+            method: "DELETE"
+        )
+    }
+
     func image() async throws -> Data {
         try await dataRequest(path: "display", method: "GET")
     }
@@ -161,12 +260,25 @@ struct APIClient: Sendable {
         return components.url?.appendingPathComponent(workflowID)
     }
 
+    func firestoreMapURL(mapID: String) -> URL? {
+        firestoreDocumentURL(path: "maps/\(mapID)")
+    }
+
     func firestoreOrderURL(orderID: String) -> URL? {
+        firestoreDocumentURL(path: "orders/\(orderID)")
+    }
+
+    private func firestoreDocumentURL(path: String) -> URL? {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "console.firebase.google.com"
-        components.path = "/project/jasonapp-xm0830/firestore/databases/-default-/data/~2Forders~2F\(orderID)"
+        let escapedPath = path.split(separator: "/").map { "~2F" + $0 }.joined()
+        components.path = "/project/jasonapp-xm0830/firestore/databases/-default-/data/\(escapedPath)"
         return components.url
+    }
+
+    private func lapTimesPath(mapID: String, trackID: String) -> String {
+        "v1/leaderboard/maps/\(mapID)/tracks/\(trackID)/times"
     }
 
     private func request<Response: Decodable, Body: Encodable>(

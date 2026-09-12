@@ -138,6 +138,7 @@ echo
 echo "JasonApp was installed successfully."
 echo "Location: $installed_app"
 echo
-echo "Open JasonApp from Applications, then click Activate All Services."
-open -R "$installed_app"
+echo "Starting JasonApp…"
+open "$installed_app"
+echo "Click Activate All Services once JasonApp opens."
 trap - EXIT
