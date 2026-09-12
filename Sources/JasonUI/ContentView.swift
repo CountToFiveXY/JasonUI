@@ -19,6 +19,11 @@ struct ContentView: View {
                         ForEach(Feature.asphaltLegends) { sidebarRow($0) }
                     } label: {
                         Label("Asphalt Legends", systemImage: "flag.checkered")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation { isAsphaltExpanded.toggle() }
+                            }
                     }
                     sidebarRow(.workflows)
                     sidebarRow(.quickLink)
