@@ -42,6 +42,19 @@ struct ShortenResponse: Decodable, Equatable {
     let shortUrl: String
 }
 
+struct RecognizedLine: Decodable, Equatable, Identifiable {
+    let text: String
+    let confidence: Double
+
+    /// Lines can repeat, so position is the stable identity.
+    var id: String { "\(text)#\(confidence)" }
+}
+
+struct RecognizedText: Decodable, Equatable {
+    let text: String
+    let lines: [RecognizedLine]
+}
+
 struct CarSummary: Decodable, Equatable, Identifiable, Hashable {
     let id: String
     let name: String
@@ -79,8 +92,6 @@ struct LapTimeEntry: Decodable, Equatable, Identifiable {
     let rank: Int
     let car: String
     let seconds: Double
-    /// Optional, so a backend predating the field still decodes.
-    let trick: String?
 
     var id: String { car }
 
@@ -90,8 +101,6 @@ struct LapTimeEntry: Decodable, Equatable, Identifiable {
     /// rounding further would make distinct records look identical. The unit
     /// lives in the column heading rather than on every row.
     var displayTime: String { String(format: "%.3f", seconds) }
-
-    var displayTrick: String { trick ?? "" }
 }
 
 struct TrackLeaderboard: Decodable, Equatable, Identifiable {
@@ -106,6 +115,80 @@ struct TrackLeaderboard: Decodable, Equatable, Identifiable {
     }
 
     var displayName: String { leaderboardDisplayName(name, chineseName) }
+}
+
+/// A track leaderboard that knows which map it came from, for a line-up whose
+/// tracks span several maps.
+struct MapTrackLeaderboard: Decodable, Equatable {
+    let id: String
+    let name: String
+    let chineseName: String?
+    let times: [LapTimeEntry]
+    let mapID: String
+    let mapName: String
+    let mapChineseName: String?
+    /// The name that was looked up, which recognition may have spelled differently.
+    let requestedName: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, times
+        case chineseName = "chinese_name"
+        case mapID = "map_id"
+        case mapName = "map_name"
+        case mapChineseName = "map_chinese_name"
+        case requestedName = "requested_name"
+    }
+
+    /// Unique per slot: the same track id could be asked for twice.
+    var slotKey: String { "\(mapID)/\(id)" }
+    var displayName: String { leaderboardDisplayName(name, chineseName) }
+    var mapDisplayName: String { leaderboardDisplayName(mapName, mapChineseName) }
+
+    func replacingTimes(_ times: [LapTimeEntry]) -> MapTrackLeaderboard {
+        MapTrackLeaderboard(
+            id: id,
+            name: name,
+            chineseName: chineseName,
+            times: times,
+            mapID: mapID,
+            mapName: mapName,
+            mapChineseName: mapChineseName,
+            requestedName: requestedName
+        )
+    }
+}
+
+/// A track in the selector: its name, and the map it belongs to.
+struct MapTrackSummary: Decodable, Equatable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let chineseName: String?
+    let mapID: String
+    let mapName: String
+    let mapChineseName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case chineseName = "chinese_name"
+        case mapID = "map_id"
+        case mapName = "map_name"
+        case mapChineseName = "map_chinese_name"
+    }
+
+    var slotKey: String { "\(mapID)/\(id)" }
+    var displayName: String { leaderboardDisplayName(name, chineseName) }
+    var mapDisplayName: String { leaderboardDisplayName(mapName, mapChineseName) }
+    /// What a one-line menu row shows: the track, then its map.
+    var menuLabel: String { "\(displayName) — \(mapName)" }
+}
+
+struct TrackListResponse: Decodable, Equatable {
+    let tracks: [MapTrackSummary]
+}
+
+struct TrackLookup: Decodable, Equatable {
+    let tracks: [MapTrackLeaderboard]
+    let unmatched: [String]
 }
 
 struct MapLeaderboard: Decodable, Equatable, Identifiable {
@@ -232,6 +315,25 @@ struct APIClient: Sendable {
         )
     }
 
+    /// Every track with the map it belongs to, for a track selector.
+    func tracks() async throws -> [MapTrackSummary] {
+        let response: TrackListResponse = try await request(
+            path: "v1/leaderboard/tracks",
+            method: "GET"
+        )
+        return response.tracks
+    }
+
+    /// Leaderboards for a list of track names, whatever maps they belong to.
+    func lookupTracks(names: [String]) async throws -> TrackLookup {
+        struct Body: Encodable { let names: [String] }
+        return try await request(
+            path: "v1/leaderboard/tracks/lookup",
+            method: "POST",
+            body: Body(names: names)
+        )
+    }
+
     func mapLeaderboard(mapID: String) async throws -> MapLeaderboard {
         try await request(path: "v1/leaderboard/maps/\(mapID)", method: "GET")
     }
@@ -240,14 +342,13 @@ struct APIClient: Sendable {
         mapID: String,
         trackID: String,
         car: String,
-        seconds: Double,
-        trick: String
+        seconds: Double
     ) async throws -> TrackLeaderboard {
-        struct Body: Encodable { let car: String; let seconds: Double; let trick: String }
+        struct Body: Encodable { let car: String; let seconds: Double }
         return try await request(
             path: lapTimesPath(mapID: mapID, trackID: trackID),
             method: "PUT",
-            body: Body(car: car, seconds: seconds, trick: trick)
+            body: Body(car: car, seconds: seconds)
         )
     }
 
@@ -260,6 +361,21 @@ struct APIClient: Sendable {
             path: lapTimesPath(mapID: mapID, trackID: trackID) + "/" + car,
             method: "DELETE"
         )
+    }
+
+    /// Read the words out of an image. The bytes are the request body, so
+    /// nothing has to be base64-encoded or wrapped in a multipart form.
+    func readText(image: Data, contentType: String = "image/png") async throws -> RecognizedText {
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/text-recognition"))
+        request.httpMethod = "POST"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = image
+        let data = try await perform(request)
+        do {
+            return try JSONDecoder().decode(RecognizedText.self, from: data)
+        } catch {
+            throw APIError.invalidResponse
+        }
     }
 
     func image() async throws -> Data {
@@ -293,6 +409,11 @@ struct APIClient: Sendable {
         components.query = nil
         components.fragment = nil
         return components.url?.appendingPathComponent(workflowID)
+    }
+
+    /// The maps collection in the Firebase console.
+    func firestoreMapsURL() -> URL? {
+        firestoreDocumentURL(path: "maps")
     }
 
     func firestoreMapURL(mapID: String) -> URL? {

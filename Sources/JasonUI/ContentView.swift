@@ -32,7 +32,7 @@ struct ContentView: View {
                 GitHubFooter(updateManager: updateManager)
             }
             .navigationTitle("JasonApp")
-            .navigationSplitViewColumnWidth(min: 190, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 340)
         } detail: {
             Group {
                 switch selection {
@@ -646,75 +646,97 @@ enum LeaderboardTime {
 
 struct LeaderboardView: View {
     @Environment(AppModel.self) private var model
-    @State private var maps: [MapSummary] = []
     @State private var cars: [CarSummary] = []
-    @State private var selectedMapID: String?
-    @State private var leaderboard: MapLeaderboard?
+    @State private var trackCatalogue: [MapTrackSummary] = []
+    @State private var isLoadingLineup = false
+    @State private var isLoadingCatalogue = false
+    /// The chosen track identifiers, one per selector slot, remembered between
+    /// launches. Stored as one string because AppStorage holds no arrays.
+    @AppStorage("leaderboardLineupSlots") private var storedSlots = ""
+    /// The tracks on show, chosen in the selectors or read off an image.
+    @State private var lineup: [MapTrackLeaderboard] = []
     @State private var isLoading = false
     @State private var isAddingMap = false
     @State private var error: String?
 
     var body: some View {
-        Form {
-            Section("Map") {
-                if maps.isEmpty {
-                    Text(isLoading ? "Loading maps…" : "No maps yet. Add one to start recording times.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    // Listed in the game's release order, exactly as the API returns them.
-                    Picker("Map", selection: $selectedMapID) {
-                        ForEach(maps) { map in
-                            Text(map.displayName).tag(Optional(map.id))
-                        }
+        VStack(alignment: .leading, spacing: 14) {
+            GroupBox("Selected Gauntlet Tracks") {
+                VStack(alignment: .leading, spacing: 10) {
+                    TrackLineupPicker(
+                        tracks: trackCatalogue,
+                        slotValues: slots,
+                        onSelect: { slot, value in setSlot(value, at: slot) }
+                    )
+                    Divider()
+                    TrackLineupReader(
+                        canLoadSelection: !selectedTrackIDs.isEmpty,
+                        isLoading: isLoadingLineup,
+                        onLoad: { data in await loadLineup(from: data) }
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(2)
+            }
+
+            // Side by side so several tracks read on one screen without
+            // scrolling down; a narrow window scrolls sideways instead.
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: TrackLeaderboardCard.cardSpacing) {
+                    ForEach(lineup, id: \.slotKey) { entry in
+                        TrackLeaderboardCard(
+                            title: entry.displayName,
+                            subtitle: nil,
+                            times: entry.times,
+                            cars: cars,
+                            onRecord: { car, seconds in
+                                await record(
+                                    mapID: entry.mapID,
+                                    trackID: entry.id,
+                                    car: car,
+                                    seconds: seconds
+                                )
+                            },
+                            onDelete: { car in
+                                await delete(mapID: entry.mapID, trackID: entry.id, car: car)
+                            }
+                        )
+                        .id(entry.slotKey)
                     }
                 }
+                .padding(.bottom, 4)
+            }
+            .defaultScrollAnchor(.topLeading)
+
+            if let error {
+                CopyableErrorText(message: error)
+                    .font(.callout)
+            }
+
+            Spacer(minLength: 0)
+
+            GroupBox("Maps") {
                 HStack(spacing: 10) {
-                    if isLoading && !maps.isEmpty { ProgressView().controlSize(.small) }
+                    Text(catalogueSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if isLoadingCatalogue { ProgressView().controlSize(.small) }
                     Spacer()
-                    if let mapID = selectedMapID,
-                       let url = model.client?.firestoreMapURL(mapID: mapID) {
+                    if let url = model.client?.firestoreMapsURL() {
                         Link("Open in Firestore", destination: url)
-                            .help("Open this map in the Firebase console")
+                            .help("Open the maps collection in the Firebase console")
                     }
-                    Button("Reload") { Task { await loadMaps() } }
+                    Button("Reload") { Task { await loadTrackCatalogue() } }
                     Button("Add Map") { isAddingMap = true }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(2)
             }
-
-            if let leaderboard {
-                ForEach(leaderboard.tracks) { track in
-                    TrackLeaderboardSection(
-                        track: track,
-                        cars: cars,
-                        onRecord: { car, trick, seconds in
-                            await record(
-                                trackID: track.id,
-                                car: car,
-                                trick: trick,
-                                seconds: seconds
-                            )
-                        },
-                        onDelete: { car in
-                            await delete(trackID: track.id, car: car)
-                        }
-                    )
-                    .id("\(leaderboard.id)/\(track.id)")
-                }
-            }
-
-            ErrorSection(message: error)
         }
-        .formStyle(.grouped)
-        // A leaderboard reads as a document: let it fill a narrow window, but
-        // stop it stretching across a very wide one.
-        .frame(maxWidth: 860)
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Leaderboard")
-        .task { await loadMaps() }
         .task { await loadCars() }
-        .onChange(of: selectedMapID) { _, _ in
-            Task { await loadLeaderboard() }
-        }
+        .task { await loadTrackCatalogue() }
         .sheet(isPresented: $isAddingMap) {
             AddMapSheet(isPresented: $isAddingMap) { name, firstTrack, secondTrack in
                 await create(name: name, tracks: [firstTrack, secondTrack])
@@ -722,22 +744,104 @@ struct LeaderboardView: View {
         }
     }
 
-    private func loadMaps() async {
+    private var catalogueSummary: String {
+        guard !trackCatalogue.isEmpty else {
+            return isLoadingCatalogue ? "Loading maps…" : "No maps yet. Add one to start recording times."
+        }
+        let maps = Set(trackCatalogue.map(\.mapID)).count
+        return "\(maps) map\(maps == 1 ? "" : "s") · \(trackCatalogue.count) tracks"
+    }
+
+    private func loadTrackCatalogue() async {
         guard let client = model.client else {
             error = APIError.invalidBaseURL.localizedDescription
             return
         }
-        isLoading = true
-        defer { isLoading = false }
+        isLoadingCatalogue = true
+        defer { isLoadingCatalogue = false }
         do {
-            maps = try await client.maps()
+            trackCatalogue = try await client.tracks()
             error = nil
-            if let selectedMapID, maps.contains(where: { $0.id == selectedMapID }) {
-                await loadLeaderboard()
-            } else {
-                selectedMapID = maps.first?.id
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// A new map brings two new tracks, so the selectors are refreshed.
+    private func create(name: String, tracks: [String]) async -> String? {
+        guard let client = model.client else { return APIError.invalidBaseURL.localizedDescription }
+        do {
+            _ = try await client.createMap(name: name, tracks: tracks)
+            await loadTrackCatalogue()
+            error = nil
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    // MARK: line-up selection
+
+    private var slots: [String] {
+        let parts = storedSlots
+            .split(separator: "\u{1}", omittingEmptySubsequences: false)
+            .map(String.init)
+        return (0..<TrackLineupPicker.slots).map { $0 < parts.count ? parts[$0] : "" }
+    }
+
+    private var selectedTrackIDs: [String] {
+        slots.filter { !$0.isEmpty }
+    }
+
+    private func setSlot(_ value: String, at index: Int) {
+        var parts = slots
+        parts[index] = value
+        storedSlots = parts.joined(separator: "\u{1}")
+    }
+
+    /// Load the line-up: read the names off an image when given one, otherwise
+    /// use the selectors. An image also fills the selectors, so a misread name
+    /// can be corrected there rather than by pasting again.
+    private func loadLineup(from image: Data?) async -> String? {
+        guard let client = model.client else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return nil
+        }
+        isLoadingLineup = true
+        defer { isLoadingLineup = false }
+
+        do {
+            var names = selectedTrackIDs
+            if let image {
+                names = try await client.readText(image: image).lines.map(\.text)
+                guard !names.isEmpty else {
+                    error = nil
+                    return "No text was found in that image."
+                }
             }
-        } catch { self.error = error.localizedDescription }
+            guard !names.isEmpty else { return nil }
+
+            let lookup = try await client.lookupTracks(names: names)
+            lineup = lookup.tracks
+            error = nil
+
+            if image != nil {
+                var parts = Array(repeating: "", count: TrackLineupPicker.slots)
+                for (index, track) in lookup.tracks.prefix(parts.count).enumerated() {
+                    parts[index] = track.id
+                }
+                storedSlots = parts.joined(separator: "\u{1}")
+            }
+
+            var status = "Loaded \(lookup.tracks.count) of \(names.count)."
+            if !lookup.unmatched.isEmpty {
+                status += " No match: " + lookup.unmatched.joined(separator: ", ")
+            }
+            return status
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
     }
 
     private func loadCars() async {
@@ -745,48 +849,18 @@ struct LeaderboardView: View {
         cars = (try? await client.cars()) ?? cars
     }
 
-    private func loadLeaderboard() async {
-        guard let mapID = selectedMapID else {
-            leaderboard = nil
-            return
-        }
-        guard let client = model.client else {
-            error = APIError.invalidBaseURL.localizedDescription
-            return
-        }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            leaderboard = try await client.mapLeaderboard(mapID: mapID)
-            error = nil
-        } catch { self.error = error.localizedDescription }
-    }
-
-    private func create(name: String, tracks: [String]) async -> String? {
-        guard let client = model.client else { return APIError.invalidBaseURL.localizedDescription }
-        do {
-            let created = try await client.createMap(name: name, tracks: tracks)
-            maps = try await client.maps()
-            leaderboard = created
-            selectedMapID = created.id
-            error = nil
-            return nil
-        } catch { return error.localizedDescription }
-    }
-
     private func record(
+        mapID: String,
         trackID: String,
         car: String,
-        trick: String,
         seconds: Double
     ) async -> Bool {
-        let saved = await update { client, mapID in
+        let saved = await update(mapID: mapID) { client in
             try await client.recordLapTime(
                 mapID: mapID,
                 trackID: trackID,
                 car: car,
-                seconds: seconds,
-                trick: trick
+                seconds: seconds
             )
         }
         let isNewCar = !cars.contains { $0.name.caseInsensitiveCompare(car) == .orderedSame }
@@ -796,29 +870,28 @@ struct LeaderboardView: View {
         return saved
     }
 
-    private func delete(trackID: String, car: String) async -> Bool {
-        await update { client, mapID in
+    private func delete(mapID: String, trackID: String, car: String) async -> Bool {
+        await update(mapID: mapID) { client in
             try await client.deleteLapTime(mapID: mapID, trackID: trackID, car: car)
         }
     }
 
-    /// Runs a track mutation and swaps the refreshed track into the leaderboard.
+    /// Runs a track mutation and swaps the refreshed track into whichever
+    /// list is on screen — the selected map's, the line-up's, or both.
     private func update(
-        _ mutation: (APIClient, String) async throws -> TrackLeaderboard
+        mapID: String,
+        _ mutation: (APIClient) async throws -> TrackLeaderboard
     ) async -> Bool {
-        guard let client = model.client, let mapID = selectedMapID else {
+        guard let client = model.client else {
             error = APIError.invalidBaseURL.localizedDescription
             return false
         }
         do {
-            let track = try await mutation(client, mapID)
-            if let current = leaderboard {
-                leaderboard = MapLeaderboard(
-                    id: current.id,
-                    name: current.name,
-                    chineseName: current.chineseName,
-                    tracks: current.tracks.map { $0.id == track.id ? track : $0 }
-                )
+            let track = try await mutation(client)
+            lineup = lineup.map { entry in
+                entry.mapID == mapID && entry.id == track.id
+                    ? entry.replacingTimes(track.times)
+                    : entry
             }
             error = nil
             return true
@@ -869,121 +942,135 @@ private enum CarChoice: Hashable {
     case other
 }
 
-private struct TrackLeaderboardSection: View {
-    let track: TrackLeaderboard
+/// One track's leaderboard, narrow enough that several sit side by side.
+private struct TrackLeaderboardCard: View {
+    let title: String
+    /// Shown under the title when the card's map is not otherwise obvious,
+    /// which it is not for a line-up spanning several maps.
+    let subtitle: String?
+    let times: [LapTimeEntry]
     let cars: [CarSummary]
-    let onRecord: (String, String, Double) async -> Bool
+    let onRecord: (String, Double) async -> Bool
     let onDelete: (String) async -> Bool
 
     @State private var carChoice = CarChoice.unselected
     @State private var car = ""
-    @State private var trick = ""
     @State private var timeText = ""
     @State private var isSaving = false
 
-    private static let trickColumnWidth: CGFloat = 168
-    private static let timeColumnWidth: CGFloat = 112
+    // Sized so five cards and five selectors fit one screen.
+    static let cardWidth: CGFloat = 176
+    static let cardSpacing: CGFloat = 10
+    private static let carWidth: CGFloat = 86
+    private static let timeWidth: CGFloat = 62
+    private static let deleteWidth: CGFloat = 18
 
     var body: some View {
-        Section(track.displayName) {
-            Grid(horizontalSpacing: 14, verticalSpacing: 0) {
-                GridRow {
-                    Text("Car")
-                        .gridColumnAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Trick")
-                        .gridColumnAlignment(.leading)
-                        .frame(width: Self.trickColumnWidth, alignment: .leading)
-                    Text("Time(s)")
-                        .gridColumnAlignment(.trailing)
-                        .frame(width: Self.timeColumnWidth, alignment: .trailing)
-                    Text("")
-                        .gridColumnAlignment(.trailing)
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 6)
-
-                Divider().gridCellUnsizedAxes(.horizontal)
-
-                if track.times.isEmpty {
-                    Text("No times recorded yet.")
+        GroupBox {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                Divider()
+                if times.isEmpty {
+                    Text("No times yet.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 9)
-                    Divider().gridCellUnsizedAxes(.horizontal)
-                } else {
-                    ForEach(track.times) { entry in
-                        GridRow {
-                            Text(entry.car)
-                                .fontWeight(entry.rank == 1 ? .semibold : .regular)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(entry.displayTrick)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(width: Self.trickColumnWidth, alignment: .leading)
-                            Text(entry.displayTime)
-                                .font(.system(.body, design: .monospaced))
-                                .fontWeight(entry.rank == 1 ? .semibold : .regular)
-                                .textSelection(.enabled)
-                                .frame(width: Self.timeColumnWidth, alignment: .trailing)
-                            Button {
-                                Task { _ = await onDelete(entry.car) }
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Remove \(entry.car) from this track")
-                        }
                         .padding(.vertical, 7)
-
-                        Divider().gridCellUnsizedAxes(.horizontal)
+                } else {
+                    ForEach(times) { entry in
+                        row(entry)
+                        Divider()
                     }
                 }
-
-                GridRow {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Picker("", selection: $carChoice) {
-                            Text("Select car").tag(CarChoice.unselected)
-                            if !cars.isEmpty {
-                                Divider()
-                                ForEach(cars) { car in
-                                    Text(car.name).tag(CarChoice.existing(car.name))
-                                }
-                            }
-                            Divider()
-                            Text("Other…").tag(CarChoice.other)
-                        }
-                        .labelsHidden()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        if carChoice == .other {
-                            BoxedTextField(placeholder: "New car", text: $car, width: 200)
-                        }
-                    }
-                    BoxedTextField(
-                        placeholder: "Trick",
-                        text: $trick,
-                        width: Self.trickColumnWidth
-                    )
-                    BoxedTextField(
-                        placeholder: "18.520",
-                        text: $timeText,
-                        width: Self.timeColumnWidth,
-                        alignment: .trailing
-                    )
-                    Button(isSaving ? "Saving…" : "Save") {
-                        Task { await save() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canSave || isSaving)
+                inputs
+            }
+            .frame(width: Self.cardWidth, alignment: .leading)
+            .padding(.horizontal, 2)
+        } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                .padding(.top, 9)
+            }
+            .help([title, subtitle].compactMap { $0 }.joined(separator: " — "))
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text("Car").frame(width: Self.carWidth, alignment: .leading)
+            Text("Time(s)").frame(width: Self.timeWidth, alignment: .trailing)
+            Spacer().frame(width: Self.deleteWidth)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.bottom, 4)
+    }
+
+    private func row(_ entry: LapTimeEntry) -> some View {
+        HStack(spacing: 6) {
+            Text(entry.car)
+                .fontWeight(entry.rank == 1 ? .semibold : .regular)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(entry.car)
+                .frame(width: Self.carWidth, alignment: .leading)
+            Text(entry.displayTime)
+                .font(.system(.callout, design: .monospaced))
+                .fontWeight(entry.rank == 1 ? .semibold : .regular)
+                .frame(width: Self.timeWidth, alignment: .trailing)
+            Button {
+                Task { _ = await onDelete(entry.car) }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Remove \(entry.car) from this track")
+            .frame(width: Self.deleteWidth)
+        }
+        .font(.callout)
+        .padding(.vertical, 4)
+    }
+
+    /// Stacked rather than in one line: the card is too narrow for a picker,
+    /// two fields and a button side by side.
+    private var inputs: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Picker("", selection: $carChoice) {
+                Text("Select car").tag(CarChoice.unselected)
+                if !cars.isEmpty {
+                    Divider()
+                    ForEach(cars) { car in
+                        Text(car.name).tag(CarChoice.existing(car.name))
+                    }
+                }
+                Divider()
+                Text("Other…").tag(CarChoice.other)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+
+            if carChoice == .other {
+                BoxedTextField(placeholder: "New car", text: $car)
+            }
+            HStack(spacing: 6) {
+                BoxedTextField(placeholder: "18.520", text: $timeText, alignment: .trailing)
+                Button(isSaving ? "…" : "Save") {
+                    Task { await save() }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(!canSave || isSaving)
             }
         }
+        .padding(.top, 7)
     }
 
     /// The car the input row will save: a pick from the list, or a typed name.
@@ -1005,13 +1092,160 @@ private struct TrackLeaderboardSection: View {
         }
         isSaving = true
         defer { isSaving = false }
-        let note = trick.trimmingCharacters(in: .whitespacesAndNewlines)
-        if await onRecord(chosenCar, note, seconds) {
+        if await onRecord(chosenCar, seconds) {
             carChoice = .unselected
             car = ""
-            trick = ""
             timeText = ""
         }
+    }
+}
+
+/// Picks the tracks to show, as a row of selectors. The chosen identifiers
+/// live in the pane so an image can fill them in.
+private struct TrackLineupPicker: View {
+    static let slots = 5
+
+    let tracks: [MapTrackSummary]
+    let slotValues: [String]
+    let onSelect: (Int, String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: TrackLeaderboardCard.cardSpacing) {
+                ForEach(0..<Self.slots, id: \.self) { slot in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Track \(slot + 1)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: binding(for: slot)) {
+                            Text("None").tag("")
+                            if !tracks.isEmpty {
+                                Divider()
+                                ForEach(tracks) { track in
+                                    Text(track.menuLabel).tag(track.id)
+                                }
+                            }
+                        }
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .frame(width: TrackLeaderboardCard.cardWidth)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            Text(chosenCount == 0
+                 ? "Pick up to five tracks, or read them from an image below."
+                 : "\(chosenCount) track\(chosenCount == 1 ? "" : "s") selected.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var chosenCount: Int {
+        slotValues.filter { !$0.isEmpty }.count
+    }
+
+    private func binding(for slot: Int) -> Binding<String> {
+        Binding(
+            get: { slot < slotValues.count ? slotValues[slot] : "" },
+            set: { onSelect(slot, $0) }
+        )
+    }
+}
+
+/// The image alternative, and the one button that loads the line-up: from the
+/// pasted image when there is one, otherwise from the selectors above.
+private struct TrackLineupReader: View {
+    let canLoadSelection: Bool
+    let isLoading: Bool
+    let onLoad: (Data?) async -> String?
+
+    @State private var image: NSImage?
+    @State private var status: String?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("or from an image")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            dropTarget
+            Button("Paste Image") { pasteFromClipboard() }
+            Button(isLoading ? "Loading…" : "Load Times") {
+                Task { await load() }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isLoading || (image == nil && !canLoadSelection))
+            .help(image == nil
+                  ? "Load the tracks selected above"
+                  : "Read the track names from the image, then load their times")
+            // Only an image can be cleared here; the selectors keep whatever
+            // the image filled in, so a line-up survives clearing the picture.
+            if image != nil {
+                Button("Clear") {
+                    image = nil
+                    status = nil
+                }
+                .help("Remove the image")
+            }
+            if let status {
+                Text(status)
+                    .font(.caption)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var dropTarget: some View {
+        RoundedRectangle(cornerRadius: 7)
+            .strokeBorder(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4]))
+            .frame(width: 86, height: 34)
+            .overlay {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFit().padding(2)
+                } else {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+                loadDropped(providers)
+                return true
+            }
+            .onTapGesture { pasteFromClipboard() }
+            .help("Paste or drop an image here")
+    }
+
+    private func pasteFromClipboard() {
+        guard let pasted = NSImage(pasteboard: .general) else { return }
+        image = pasted
+        status = nil
+    }
+
+    private func loadDropped(_ providers: [NSItemProvider]) {
+        guard let provider = providers.first else { return }
+        _ = provider.loadObject(ofClass: NSImage.self) { object, _ in
+            guard let dropped = object as? NSImage else { return }
+            Task { @MainActor in
+                image = dropped
+                status = nil
+            }
+        }
+    }
+
+    private func load() async {
+        let data = image.flatMap(Self.pngData)
+        status = await onLoad(data)
+    }
+
+    /// NSImage carries whatever representation it was created from, so it is
+    /// re-encoded as PNG for a predictable request body.
+    static func pngData(from image: NSImage) -> Data? {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
     }
 }
 
@@ -1029,7 +1263,7 @@ private struct AddMapSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Add Map")
                 .font(.title3.weight(.semibold))
-            Text("Every map has exactly two tracks. Maps and tracks cannot be renamed or removed later.")
+            Text("Both tracks are required — a map with no tracks would not appear in the track selectors. Maps and tracks cannot be renamed or removed later.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Form {

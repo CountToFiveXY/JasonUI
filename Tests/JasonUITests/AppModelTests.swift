@@ -54,3 +54,67 @@ struct AppModelTests {
         #expect(result == validDirectory.standardizedFileURL.resolvingSymlinksInPath())
     }
 }
+
+struct AppUpdateTests {
+    @Test func picksThePackagedAppFromTheReleaseAssets() throws {
+        let json = Data(#"""
+        {"tag_name":"build-42","assets":[
+          {"name":"notes.md","browser_download_url":"https://example.com/notes.md"},
+          {"name":"JasonApp.zip","browser_download_url":"https://example.com/JasonApp.zip"}
+        ]}
+        """#.utf8)
+
+        let release = try JSONDecoder().decode(ReleaseFeedProbe.self, from: json)
+
+        #expect(release.tagName == "build-42")
+        let archive = try #require(release.assets.first { $0.name == AppUpdateManager.releaseAssetName })
+        #expect(archive.browserDownloadURL.absoluteString == "https://example.com/JasonApp.zip")
+    }
+
+    @Test func readsTheCommitAnAppBundleWasBuiltFrom() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("JasonApp-ReleaseTests-\(UUID().uuidString)", isDirectory: true)
+        let appURL = root.appendingPathComponent("JasonApp.app/Contents", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: appURL, withIntermediateDirectories: true)
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: ["JasonSourceCommit": "abc1234"],
+            format: .xml,
+            options: 0
+        )
+        try plist.write(to: appURL.appendingPathComponent("Info.plist"))
+
+        let commit = AppUpdateManager.sourceCommit(
+            of: root.appendingPathComponent("JasonApp.app", isDirectory: true)
+        )
+        #expect(commit == "abc1234")
+    }
+
+    @Test func reportsNoCommitForABundleWithoutAPlist() {
+        let missing = URL(fileURLWithPath: "/nonexistent/JasonApp.app")
+        #expect(AppUpdateManager.sourceCommit(of: missing) == nil)
+    }
+}
+
+/// Mirrors the release feed shape AppUpdateManager decodes, which is private.
+private struct ReleaseFeedProbe: Decodable {
+    struct Asset: Decodable {
+        let name: String
+        let browserDownloadURL: URL
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadURL = "browser_download_url"
+        }
+    }
+
+    let tagName: String
+    let assets: [Asset]
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case assets
+    }
+}

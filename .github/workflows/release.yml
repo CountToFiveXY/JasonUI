@@ -1,0 +1,49 @@
+name: Release JasonApp
+
+# Every commit on main publishes a build, which is what the app's Update
+# button installs. That keeps the existing "push to main and it ships" flow:
+# switch this to `tags: ['v*']` if releases should be cut by hand instead.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Builds are published in order, so the newest commit is always the latest
+# release rather than whichever job happened to finish last.
+concurrency:
+  group: release-jasonapp
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tests
+        run: xcrun swift test
+
+      # Stamps JasonSourceCommit into Info.plist from git HEAD, which is how
+      # the app decides whether a build is newer than the one installed.
+      - name: Package JasonApp.app
+        run: scripts/package_app.sh
+
+      - name: Archive the app bundle
+        run: ditto -c -k --keepParent .build/app-package/JasonApp.app JasonApp.zip
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Passed as an environment variable rather than interpolated into the
+          # script, so a commit message cannot inject shell.
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          printf '%s\n\nCommit: %s\n' "${COMMIT_MESSAGE:-Manual build}" "$GITHUB_SHA" > notes.md
+          gh release create "build-${GITHUB_RUN_NUMBER}" JasonApp.zip \
+            --title "Build ${GITHUB_RUN_NUMBER}" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            --latest

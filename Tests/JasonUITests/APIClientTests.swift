@@ -150,7 +150,7 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.url?.path == "/v1/leaderboard/maps/new-york")
             let data = Data(
-                #"{"id":"new-york","name":"New York","tracks":[{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62,"trick":"double shockwave"},{"rank":2,"car":"C3","seconds":20.1}]},{"id":"harbor-sprint","name":"Harbor Sprint","times":[]}]}"#.utf8
+                #"{"id":"new-york","name":"New York","tracks":[{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62},{"rank":2,"car":"C3","seconds":20.1}]},{"id":"harbor-sprint","name":"Harbor Sprint","times":[]}]}"#.utf8
             )
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -164,11 +164,8 @@ struct APIClientTests {
         #expect(fastest.rank == 1)
         #expect(fastest.car == "C2")
         #expect(fastest.displayTime == "19.620")
-        #expect(fastest.displayTrick == "double shockwave")
         let slower = try #require(leaderboard.tracks.first?.times.last)
         #expect(slower.displayTime == "20.100")
-        // A time stored before the trick field existed decodes as blank.
-        #expect(slower.displayTrick == "")
         #expect(leaderboard.tracks.last?.times.isEmpty == true)
     }
 
@@ -180,9 +177,8 @@ struct APIClientTests {
             let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(json["car"] as? String == "C2")
             #expect(json["seconds"] as? Double == 19.62)
-            #expect(json["trick"] as? String == "double shockwave")
             let data = Data(
-                #"{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62,"trick":"double shockwave"}]}"#.utf8
+                #"{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62}]}"#.utf8
             )
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -194,8 +190,7 @@ struct APIClientTests {
             mapID: "new-york",
             trackID: "a-park-in-a-run",
             car: "C2",
-            seconds: 19.62,
-            trick: "double shockwave"
+            seconds: 19.62
         )
 
         let cars = track.times.map(\.car)
@@ -234,6 +229,119 @@ struct APIClientTests {
         let cars = try await client().cars()
 
         #expect(cars == [CarSummary(id: "c2", name: "c2"), CarSummary(id: "杰弟", name: "杰弟")])
+    }
+
+    @Test func postsAnImageAsTheBodyAndDecodesLines() async throws {
+        let pixels = Data([0x89, 0x50, 0x4E, 0x47])
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/v1/text-recognition")
+            #expect(request.value(forHTTPHeaderField: "Content-Type") == "image/png")
+            #expect(requestBodyData(request) == pixels)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"text":"WATERSLIDE WHIRL\nNOTRE DAME","lines":[{"text":"WATERSLIDE WHIRL","confidence":0.98},{"text":"NOTRE DAME","confidence":0.95}]}"#.utf8)
+            )
+        }
+
+        let recognized = try await client().readText(image: pixels)
+
+        let texts = recognized.lines.map(\.text)
+        #expect(texts == ["WATERSLIDE WHIRL", "NOTRE DAME"])
+        #expect(recognized.lines.first?.confidence == 0.98)
+    }
+
+    @Test func surfacesTextRecognitionErrors() async throws {
+        MockURLProtocol.handler = { request in
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"detail":"Cloud Vision API has not been used in project"}"#.utf8)
+            )
+        }
+
+        await #expect(throws: APIError.server(
+            statusCode: 503,
+            message: "Cloud Vision API has not been used in project"
+        )) {
+            try await client().readText(image: Data([0x1]))
+        }
+    }
+
+    @Test func decodesTheTrackRosterForTheSelectors() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "GET")
+            #expect(request.url?.path == "/v1/leaderboard/tracks")
+            let data = Data(#"""
+            {"tracks":[
+              {"id":"railroad-bustle","name":"Railroad Bustle","chinese_name":"喧闹铁路",
+               "map_id":"san-francisco","map_name":"San Francisco","map_chinese_name":"旧金山"},
+              {"id":"the-tunnel","name":"The Tunnel","map_id":"san-francisco","map_name":"San Francisco"}
+            ]}
+            """#.utf8)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                data
+            )
+        }
+
+        let tracks = try await client().tracks()
+
+        #expect(tracks.count == 2)
+        #expect(tracks[0].menuLabel == "Railroad Bustle (喧闹铁路) — San Francisco")
+        #expect(tracks[0].slotKey == "san-francisco/railroad-bustle")
+        // A track with no translation shows just its name.
+        #expect(tracks[1].menuLabel == "The Tunnel — San Francisco")
+    }
+
+    @Test func looksUpTracksByNameAcrossMaps() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/v1/leaderboard/tracks/lookup")
+            let body = try #require(requestBodyData(request))
+            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(json["names"] as? [String] == ["WATERSLIDE WHIRL", "NOT A TRACK"])
+            let data = Data(#"""
+            {"tracks":[{"id":"waterslide-whirl","name":"Waterslide Whirl","chinese_name":"滑水道旋流",
+              "map_id":"singapore","map_name":"Singapore","map_chinese_name":"新加坡",
+              "requested_name":"WATERSLIDE WHIRL",
+              "times":[{"rank":1,"car":"狼","seconds":21.057}]}],
+             "unmatched":["NOT A TRACK"]}
+            """#.utf8)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                data
+            )
+        }
+
+        let lookup = try await client().lookupTracks(names: ["WATERSLIDE WHIRL", "NOT A TRACK"])
+
+        let track = try #require(lookup.tracks.first)
+        #expect(track.displayName == "Waterslide Whirl (滑水道旋流)")
+        #expect(track.mapDisplayName == "Singapore (新加坡)")
+        #expect(track.slotKey == "singapore/waterslide-whirl")
+        #expect(track.requestedName == "WATERSLIDE WHIRL")
+        #expect(lookup.unmatched == ["NOT A TRACK"])
+    }
+
+    @Test func replacingTimesKeepsTheTracksIdentity() {
+        let track = MapTrackLeaderboard(
+            id: "la-boca",
+            name: "La Boca",
+            chineseName: "拉博卡区",
+            times: [],
+            mapID: "buenos-aires",
+            mapName: "Buenos Aires",
+            mapChineseName: "布宜诺斯艾利斯",
+            requestedName: "LA BOCA"
+        )
+
+        let updated = track.replacingTimes([
+            LapTimeEntry(rank: 1, car: "狼", seconds: 24.001)
+        ])
+
+        #expect(updated.slotKey == track.slotKey)
+        #expect(updated.displayName == track.displayName)
+        #expect(updated.times.map(\.car) == ["狼"])
     }
 
     @Test func parsesTypedLapTimes() {

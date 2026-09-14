@@ -87,20 +87,42 @@ it tries ports `8088` and `8888` automatically.
 
 ## Update JasonApp
 
+Every commit pushed to `main` is built and published by GitHub Actions
+(`.github/workflows/release.yml`), which runs the tests, packages
+`JasonApp.app`, and attaches it to a release as `JasonApp.zip`.
+
 JasonApp checks the remote JasonUI `main` branch when it opens and every 15
 minutes afterward. The version control at the bottom-left changes to an
 **Update** button when another machine has pushed a newer commit.
 
 Click **Update** to automatically:
 
-1. Confirm the local JasonUI repository has no uncommitted changes.
-2. Fast-forward the local repository from `origin/main`.
-3. Run the Swift tests.
-4. Rebuild and verify JasonApp.
-5. Replace `/Applications/JasonApp.app` and restart it.
+1. Download the published `JasonApp.zip` and unpack it.
+2. Verify its signature.
+3. Replace `/Applications/JasonApp.app` and restart it.
 
-If the local repository contains uncommitted work, the update stops without
-changing it. Commit or discard those changes, then click **Update** again.
+Because the app is downloaded rather than compiled, **a Mac that only runs
+JasonApp needs neither Xcode nor a copy of this repository** to stay up to
+date.
+
+If no build has been published yet — CI still running, or working offline —
+the update falls back to compiling from a local checkout, which is the older
+behaviour: confirm the repository is clean, fast-forward `origin/main`, run
+the tests, rebuild, and install. That fallback needs Xcode and a clean
+worktree; without a checkout the update reports why it could not download
+instead.
+
+### Setting up another Mac
+
+To run JasonApp on a second Mac without installing Xcode, download
+`JasonApp.zip` from the [latest release](https://github.com/CountToFiveXY/JasonUI/releases/latest),
+unzip it into `/Applications`, and open it. The Update button maintains it from
+then on.
+
+That Mac still needs the JasonPython repository and Homebrew to run the backend
+locally — **the Update button does not update the backend.** Alternatively,
+point it at a backend running on another machine by changing the Server URL on
+the Server pane.
 
 You can also double-click `Install JasonApp.command` at any time to rebuild and
 replace the app manually.
