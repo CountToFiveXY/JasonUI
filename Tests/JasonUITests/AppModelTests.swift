@@ -118,3 +118,21 @@ private struct ReleaseFeedProbe: Decodable {
         case assets
     }
 }
+
+struct CardTypeTests {
+    /// Pinned to the backend's PERCENTAGES, which owns these values. If the
+    /// backend's own test changes, this one has to change with it.
+    @Test func summarisesThePercentageRowsPerEventType() {
+        #expect(CardType.ch.percentageSummary == "1/5/25/50/75/100")
+        #expect(CardType.sp.percentageSummary == "1/10/25/50/75/100")
+        #expect(CardType.se.percentageSummary == "5/10/25/50/75/100")
+    }
+
+    @Test func everyEventTypeHasSixRows() {
+        for type in CardType.allCases {
+            #expect(type.percentages.count == 6, "\(type.displayName)")
+            #expect(type.percentages.last == 100, "\(type.displayName)")
+            #expect(type.percentages == type.percentages.sorted(), "\(type.displayName)")
+        }
+    }
+}

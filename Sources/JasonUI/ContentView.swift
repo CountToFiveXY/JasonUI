@@ -352,8 +352,12 @@ struct RankingView: View {
 private struct RankingCardSection: View {
     @Environment(AppModel.self) private var model
 
-    private static let cardWidth: CGFloat = 288
-    private static let fieldWidth: CGFloat = 256
+    // The event-type row sets the floor: the picker plus the percentage text
+    // has to fit without wrapping, and everything else lines up to it.
+    private static let cardWidth: CGFloat = 268
+    private static let fieldWidth: CGFloat = 240
+    private static let pickerWidth: CGFloat = 138
+    private static let totalWidth: CGFloat = 142
 
     private let slot: Int
 
@@ -386,10 +390,19 @@ private struct RankingCardSection: View {
                 // Labels sit above their fields: a column this narrow has no
                 // room for the side-by-side form layout.
                 labeled("Event Type") {
-                    Picker("", selection: $type) {
-                        ForEach(CardType.allCases) { Text($0.displayName).tag($0) }
+                    HStack(spacing: 6) {
+                        Picker("", selection: $type) {
+                            ForEach(CardType.allCases) { Text($0.displayName).tag($0) }
+                        }
+                        .labelsHidden()
+                        .frame(width: Self.pickerWidth, alignment: .leading)
+                        Text(type.percentageSummary)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .help("The percentage rows this card will show")
                     }
-                    .labelsHidden()
                     .frame(width: Self.fieldWidth, alignment: .leading)
                 }
                 labeled("Car Name") {
@@ -401,20 +414,23 @@ private struct RankingCardSection: View {
                     )
                 }
                 labeled("Total Participants") {
-                    BoxedNativeField(
-                        placeholder: "Enter Total Participants",
-                        text: $totalText,
-                        isFocused: $isTotalFieldFocused,
-                        width: Self.fieldWidth
-                    )
+                    HStack(spacing: 8) {
+                        BoxedNativeField(
+                            placeholder: "Total",
+                            text: $totalText,
+                            isFocused: $isTotalFieldFocused,
+                            width: Self.totalWidth
+                        )
+                        Spacer(minLength: 6)
+                        Button(isLoading ? "Generating…" : "Generate") {
+                            Task { await generate() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canGenerate)
+                        .help("Generate the card and copy it to the clipboard")
+                    }
+                    .frame(width: Self.fieldWidth, alignment: .leading)
                 }
-
-                Button(isLoading ? "Generating…" : "Generate") {
-                    Task { await generate() }
-                }
-                .buttonStyle(.borderedProminent)
-                .frame(maxWidth: .infinity)
-                .disabled(!canGenerate)
 
                 if let error {
                     CopyableErrorText(message: error)
@@ -422,26 +438,28 @@ private struct RankingCardSection: View {
                 }
 
                 if let image {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 6) {
                         Image(nsImage: image)
                             .resizable()
                             .scaledToFit()
                             .frame(maxWidth: 228, maxHeight: 380)
                             .shadow(radius: 6)
-                        Button {
-                            copyImage(image)
-                        } label: {
-                            Text(didCopy ? "Copied" : "Copy")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                            // Re-copying without regenerating, which would
+                            // stamp the card with a new timestamp.
+                            .onTapGesture { didCopy = copyImage(image) }
+                            .help("Click the card to copy it again")
+                        Label(
+                            didCopy ? "Copied to clipboard" : "Click the card to copy",
+                            systemImage: didCopy ? "checkmark.circle.fill" : "doc.on.doc"
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(didCopy ? Color.green : .secondary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 2)
                 }
             }
-            .padding(6)
+            .padding(3)
             .frame(width: Self.cardWidth, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -486,14 +504,17 @@ private struct RankingCardSection: View {
             let data = try await client.ranking(total: total, type: type, car: car)
             guard let preview = NSImage(data: data) else { throw APIError.invalidResponse }
             image = preview
-            didCopy = false
+            // Generating copies as well: the card is always wanted on the
+            // clipboard, so a second click was pure ceremony.
+            didCopy = copyImage(preview)
             error = nil
         } catch { self.error = error.localizedDescription }
     }
 
-    private func copyImage(_ image: NSImage) {
+    @discardableResult
+    private func copyImage(_ image: NSImage) -> Bool {
         NSPasteboard.general.clearContents()
-        didCopy = NSPasteboard.general.writeObjects([image])
+        return NSPasteboard.general.writeObjects([image])
     }
 }
 

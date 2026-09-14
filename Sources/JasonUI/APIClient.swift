@@ -217,6 +217,24 @@ enum CardType: String, CaseIterable, Identifiable, Codable {
         case .sp: "Spotlight"
         }
     }
+
+    /// The percentage rows a generated card shows.
+    ///
+    /// The backend owns these — `PERCENTAGES` in its ranking service, which
+    /// has a test pinning the values. They are mirrored here only to label the
+    /// event-type picker, so a change there must be copied across.
+    var percentages: [Int] {
+        switch self {
+        case .ch: [1, 5, 25, 50, 75, 100]
+        case .sp: [1, 10, 25, 50, 75, 100]
+        case .se: [5, 10, 25, 50, 75, 100]
+        }
+    }
+
+    /// No unit suffix: it would wrap onto a second line in a card column.
+    var percentageSummary: String {
+        percentages.map(String.init).joined(separator: "/")
+    }
 }
 
 enum APIError: LocalizedError, Equatable {
