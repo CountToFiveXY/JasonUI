@@ -1227,9 +1227,12 @@ private struct TrackLineupReader: View {
     private func loadDropped(_ providers: [NSItemProvider]) {
         guard let provider = providers.first else { return }
         _ = provider.loadObject(ofClass: NSImage.self) { object, _ in
-            guard let dropped = object as? NSImage else { return }
+            // NSImage is not Sendable, so the bytes cross to the main actor
+            // rather than the image itself.
+            guard let dropped = object as? NSImage,
+                  let encoded = Self.pngData(from: dropped) else { return }
             Task { @MainActor in
-                image = dropped
+                image = NSImage(data: encoded)
                 status = nil
             }
         }
@@ -1242,7 +1245,7 @@ private struct TrackLineupReader: View {
 
     /// NSImage carries whatever representation it was created from, so it is
     /// re-encoded as PNG for a predictable request body.
-    static func pngData(from image: NSImage) -> Data? {
+    nonisolated static func pngData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
         return bitmap.representation(using: .png, properties: [:])
