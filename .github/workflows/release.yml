@@ -25,6 +25,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The image's default Xcode lags behind a current dev Mac, and the
+      # older compiler rejects code a newer one accepts. Take the newest
+      # Xcode installed so CI and a developer see the same errors.
+      - name: Select the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          newest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Selecting $newest"
+          sudo xcode-select -s "$newest"
+
       - name: Show toolchain
         run: xcrun swift --version
 

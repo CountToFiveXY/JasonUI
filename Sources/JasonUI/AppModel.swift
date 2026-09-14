@@ -91,12 +91,14 @@ final class AppModel {
             errorMessage = error.localizedDescription
         }
 
-        switch await temporalCheck {
-        case true:
-            temporalState = .running("Web UI reachable on port 8233")
-        case false:
-            temporalState = .unavailable("Web UI not reachable on port 8233")
-        case nil:
+        // Written as if/else rather than a switch over Bool?: older Swift 6
+        // releases do not treat true/false/nil as exhaustive, and CI builds
+        // with an older compiler than a current Xcode provides.
+        if let isReachable = await temporalCheck {
+            temporalState = isReachable
+                ? .running("Web UI reachable on port 8233")
+                : .unavailable("Web UI not reachable on port 8233")
+        } else {
             temporalState = .unsupported
         }
     }
