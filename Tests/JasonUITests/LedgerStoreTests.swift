@@ -49,6 +49,8 @@ struct LedgerStoreTests {
         #expect(LedgerStore.sanitizedAmountInput("9.876") == "9.87")
         #expect(LedgerStore.sanitizedAmountInput("1.2.3") == "1.23")
         #expect(LedgerStore.sanitizedAmountInput("coffee") == "")
+        #expect(LedgerStore.cents(from: "💰12.34") == 1_234)
+        #expect(LedgerStore.formattedAmount(1_234) == "💰12.34")
     }
 
     @Test func clearsEveryRecord() {
@@ -90,10 +92,7 @@ struct LedgerStoreTests {
             )
         ]
 
-        let image = InvoiceImageRenderer.makeImage(
-            records: records,
-            currencyCode: "USD"
-        )
+        let image = InvoiceImageRenderer.makeImage(records: records)
         let tiffData = try #require(image.tiffRepresentation)
         let bitmap = try #require(NSBitmapImageRep(data: tiffData))
 

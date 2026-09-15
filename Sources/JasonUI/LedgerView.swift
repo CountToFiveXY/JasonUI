@@ -13,6 +13,8 @@ struct ExpenseRecord: Codable, Identifiable, Equatable {
 @MainActor
 @Observable
 final class LedgerStore {
+    nonisolated static let moneySymbol = "💰"
+
     private(set) var records: [ExpenseRecord]
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -76,6 +78,7 @@ final class LedgerStore {
 
     nonisolated static func cents(from text: String) -> Int64? {
         var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.replacingOccurrences(of: moneySymbol, with: "")
         value = value.replacingOccurrences(of: Locale.current.currencySymbol ?? "$", with: "")
         value = value.replacingOccurrences(of: ",", with: "")
         guard let decimal = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")),
@@ -108,6 +111,12 @@ final class LedgerStore {
         return result
     }
 
+    nonisolated static func formattedAmount(_ cents: Int64) -> String {
+        moneySymbol + (Decimal(cents) / 100).formatted(
+            .number.precision(.fractionLength(2))
+        )
+    }
+
     private static func load(from defaults: UserDefaults, key: String) -> [ExpenseRecord] {
         guard let data = defaults.data(forKey: key),
               let decoded = try? JSONDecoder().decode([ExpenseRecord].self, from: data) else {
@@ -132,8 +141,6 @@ struct LedgerView: View {
     @FocusState private var focusedField: Field?
 
     private enum Field { case purpose, amount }
-    private let currencyCode = Locale.current.currency?.identifier ?? "USD"
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -191,7 +198,7 @@ struct LedgerView: View {
 
                     ledgerField(title: "Amount") {
                         HStack(spacing: 6) {
-                            Text(Locale.current.currencySymbol ?? "$")
+                            Text(LedgerStore.moneySymbol)
                                 .foregroundStyle(.secondary)
                             TextField("0.00", text: $amount)
                                 .textFieldStyle(.roundedBorder)
@@ -258,7 +265,6 @@ struct LedgerView: View {
                         Divider()
                         ExpenseRowView(
                             record: record,
-                            currencyCode: currencyCode,
                             onRename: { newPurpose in
                                 let didUpdate = store.updatePurpose(
                                     id: record.id,
@@ -342,7 +348,7 @@ struct LedgerView: View {
     }
 
     private func formattedAmount(_ cents: Int64) -> String {
-        (Decimal(cents) / 100).formatted(.currency(code: currencyCode))
+        LedgerStore.formattedAmount(cents)
     }
 
     private var imageErrorIsPresented: Binding<Bool> {
@@ -355,8 +361,7 @@ struct LedgerView: View {
     private func createImage() {
         guard !store.records.isEmpty else { return }
         let image = InvoiceImageRenderer.makeImage(
-            records: store.records,
-            currencyCode: currencyCode
+            records: store.records
         )
         NSPasteboard.general.clearContents()
         if NSPasteboard.general.writeObjects([image]) {
@@ -369,7 +374,6 @@ struct LedgerView: View {
 
 private struct ExpenseRowView: View {
     let record: ExpenseRecord
-    let currencyCode: String
     let onRename: (String) -> Bool
     let onDelete: () -> Void
 
@@ -461,7 +465,7 @@ private struct ExpenseRowView: View {
     }
 
     private var formattedAmount: String {
-        (Decimal(record.amountInCents) / 100).formatted(.currency(code: currencyCode))
+        LedgerStore.formattedAmount(record.amountInCents)
     }
 
     private func beginEditing() {

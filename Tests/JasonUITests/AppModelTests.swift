@@ -147,14 +147,14 @@ struct InvoiceImageRendererTests {
             ExpenseRecord(id: UUID(), purpose: "Fuel", amountInCents: 4_099, createdAt: Date()),
         ]
 
-        let image = InvoiceImageRenderer.makeImage(records: records, currencyCode: "USD")
+        let image = InvoiceImageRenderer.makeImage(records: records)
 
         #expect(image.size.width > 0)
         #expect(image.size.height > 0)
     }
 
     @Test func rendersAnEmptyBill() {
-        let image = InvoiceImageRenderer.makeImage(records: [], currencyCode: "USD")
+        let image = InvoiceImageRenderer.makeImage(records: [])
         #expect(image.size.width > 0)
     }
 

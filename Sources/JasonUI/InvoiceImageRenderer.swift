@@ -10,7 +10,7 @@ enum InvoiceImageRenderer {
     private static let bottomWhitespace: CGFloat = 150
     private static let brandHeaderHeight: CGFloat = 300
 
-    static func makeImage(records: [ExpenseRecord], currencyCode: String) -> NSImage {
+    static func makeImage(records: [ExpenseRecord]) -> NSImage {
         let sortedRecords = records.sorted { $0.createdAt < $1.createdAt }
         // Keep the table visually attached to the two header cards.
         let tableTop: CGFloat = 230
@@ -58,7 +58,7 @@ enum InvoiceImageRenderer {
                 color: .secondaryLabelColor
             )
             drawText(
-                formattedAmount(record.amountInCents, currencyCode: currencyCode),
+                formattedAmount(record.amountInCents),
                 in: columnRect(y: rowY + 18, column: .amount),
                 font: invoiceFont(size: 19, weight: .semibold),
                 color: .labelColor,
@@ -83,8 +83,7 @@ enum InvoiceImageRenderer {
         )
         drawText(
             formattedAmount(
-                sortedRecords.reduce(0) { $0 + $1.amountInCents },
-                currencyCode: currencyCode
+                sortedRecords.reduce(0) { $0 + $1.amountInCents }
             ),
             in: NSRect(x: imageWidth - margin - 270, y: totalY + 20, width: 250, height: 36),
             font: invoiceFont(size: 26, weight: .bold),
@@ -258,8 +257,8 @@ enum InvoiceImageRenderer {
         (text as NSString).draw(in: rect, withAttributes: attributes)
     }
 
-    private static func formattedAmount(_ cents: Int64, currencyCode: String) -> String {
-        (Decimal(cents) / 100).formatted(.currency(code: currencyCode))
+    private static func formattedAmount(_ cents: Int64) -> String {
+        LedgerStore.formattedAmount(cents)
     }
 
     private static func invoiceFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
