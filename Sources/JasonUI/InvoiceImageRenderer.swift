@@ -181,11 +181,42 @@ enum InvoiceImageRenderer {
         }
     }
 
+    static let brandImageName = "GalaxyArcherBrand"
+
     private static func loadBrandImage() -> NSImage? {
-        let mainURL = Bundle.main.url(forResource: "GalaxyArcherBrand", withExtension: "png")
-        let moduleURL = Bundle.module.url(forResource: "GalaxyArcherBrand", withExtension: "png")
-        guard let url = mainURL ?? moduleURL else { return nil }
+        guard let url = brandImageURL() else { return nil }
         return NSImage(contentsOf: url)
+    }
+
+    /// Where the brand image lives, or nil when it is not packaged.
+    ///
+    /// `Bundle.module` is deliberately avoided: it traps when SwiftPM's
+    /// resource bundle is missing, and `a ?? Bundle.module...` evaluates both
+    /// sides, so it brought the app down even when the main bundle already
+    /// had the image. A missing decoration must never fail a bill.
+    static func brandImageURL() -> URL? {
+        if let url = Bundle.main.url(forResource: brandImageName, withExtension: "png") {
+            return url
+        }
+        return resourceBundle()?.url(forResource: brandImageName, withExtension: "png")
+    }
+
+    /// SwiftPM's resource bundle, located by hand so that a missing one
+    /// returns nil rather than trapping the way `Bundle.module` does.
+    private static func resourceBundle() -> Bundle? {
+        let roots = [
+            Bundle.main.resourceURL,
+            Bundle.main.bundleURL,
+            Bundle.main.executableURL?.deletingLastPathComponent(),
+        ].compactMap { $0 }
+
+        for root in roots {
+            let url = root.appendingPathComponent("JasonUI_JasonUI.bundle")
+            if let bundle = Bundle(url: url) {
+                return bundle
+            }
+        }
+        return nil
     }
 
     private static func columnRect(y: CGFloat, column: Column) -> NSRect {

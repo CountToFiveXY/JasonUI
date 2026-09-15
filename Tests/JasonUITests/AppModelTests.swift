@@ -136,3 +136,30 @@ struct CardTypeTests {
         }
     }
 }
+
+@MainActor
+struct InvoiceImageRendererTests {
+    @Test func rendersABillWithoutTheBrandImage() {
+        // The brand image is decoration. Rendering must not depend on finding
+        // it — looking for it used to bring the app down.
+        let records = [
+            ExpenseRecord(id: UUID(), purpose: "Track pass", amountInCents: 12_50, createdAt: Date()),
+            ExpenseRecord(id: UUID(), purpose: "Fuel", amountInCents: 4_099, createdAt: Date()),
+        ]
+
+        let image = InvoiceImageRenderer.makeImage(records: records, currencyCode: "USD")
+
+        #expect(image.size.width > 0)
+        #expect(image.size.height > 0)
+    }
+
+    @Test func rendersAnEmptyBill() {
+        let image = InvoiceImageRenderer.makeImage(records: [], currencyCode: "USD")
+        #expect(image.size.width > 0)
+    }
+
+    @Test func brandImageLookupNeverTraps() {
+        // Returns a URL when packaged and nil when not, but must not crash.
+        _ = InvoiceImageRenderer.brandImageURL()
+    }
+}
