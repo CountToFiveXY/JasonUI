@@ -1156,28 +1156,32 @@ private struct TrackLineupPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .bottom, spacing: TrackLeaderboardCard.cardSpacing) {
-                ForEach(0..<Self.slots, id: \.self) { slot in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Track \(slot + 1)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Picker("", selection: binding(for: slot)) {
-                            Text("None").tag("")
-                            if !tracks.isEmpty {
-                                Divider()
-                                ForEach(tracks) { track in
-                                    Text(track.menuLabel).tag(track.id)
+            ScrollView(.horizontal) {
+                HStack(alignment: .bottom, spacing: TrackLeaderboardCard.cardSpacing) {
+                    ForEach(0..<Self.slots, id: \.self) { slot in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Track \(slot + 1)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Picker("", selection: binding(for: slot)) {
+                                Text("None").tag("")
+                                if !tracks.isEmpty {
+                                    Divider()
+                                    ForEach(tracks) { track in
+                                        Text(track.menuLabel).tag(track.id)
+                                    }
                                 }
                             }
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .frame(width: TrackLeaderboardCard.cardWidth)
                         }
-                        .labelsHidden()
-                        .controlSize(.small)
-                        .frame(width: TrackLeaderboardCard.cardWidth)
                     }
                 }
-                Spacer(minLength: 0)
+                .padding(.bottom, 5)
             }
+            .scrollIndicators(.visible, axes: .horizontal)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(chosenCount == 0
                  ? "Pick up to five tracks, or read them from an image below."
