@@ -11,24 +11,28 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             VStack(spacing: 0) {
-                List(selection: $selection) {
-                    sidebarRow(.dashboard)
-                    sidebarRow(.ledger)
-                    sidebarRow(.shortener)
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        sidebarRow(.dashboard)
+                        sidebarRow(.ledger)
+                        sidebarRow(.shortener)
                     DisclosureGroup(isExpanded: $isAsphaltExpanded) {
-                        ForEach(Feature.asphaltLegends) { sidebarRow($0) }
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(Feature.asphaltLegends) { sidebarRow($0, indented: true) }
+                            }
                     } label: {
                         Label("Asphalt Legends", systemImage: "flag.checkered")
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation { isAsphaltExpanded.toggle() }
-                            }
+                                .padding(.vertical, 7)
                     }
-                    sidebarRow(.workflows)
-                    sidebarRow(.quickLink)
+                        .padding(.horizontal, 10)
+                        sidebarRow(.workflows)
+                        sidebarRow(.quickLink)
+                    }
+                    .padding(.vertical, 8)
                 }
-                .listStyle(.sidebar)
+                .scrollIndicators(.automatic, axes: .vertical)
                 Divider()
                 GitHubFooter(updateManager: updateManager)
             }
@@ -54,9 +58,24 @@ struct ContentView: View {
         .task { await updateManager.monitorForUpdates() }
     }
 
-    private func sidebarRow(_ feature: Feature) -> some View {
-        Label(feature.title, systemImage: feature.icon)
-            .tag(feature)
+    private func sidebarRow(_ feature: Feature, indented: Bool = false) -> some View {
+        Button {
+            selection = feature
+        } label: {
+            Label(feature.title, systemImage: feature.icon)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, indented ? 16 : 0)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .foregroundStyle(selection == feature ? Color.white : Color.primary)
+                .background(
+                    selection == feature ? Color.accentColor : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
     }
 }
 
