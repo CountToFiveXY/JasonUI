@@ -122,10 +122,11 @@ final class AppUpdateManager {
     }
 
     func installUpdate() async {
-        guard updateAvailable else {
-            await checkForUpdates()
-            return
-        }
+        // The release build can finish while an old "Update" button is still
+        // on screen. Refresh before downloading so a stale button becomes the
+        // current-version label instead of trying to rebuild the same commit.
+        await checkForUpdates()
+        guard updateAvailable else { return }
 
         state = .updating
         errorMessage = nil
@@ -210,7 +211,14 @@ final class AppUpdateManager {
             guard let checkoutURL = try? await resolveFrontendDirectory(allowSelection: false) else {
                 throw downloadError
             }
-            return try await buildPackagedApp(from: checkoutURL)
+            do {
+                return try await buildPackagedApp(from: checkoutURL)
+            } catch let buildError {
+                throw UpdatePreparationError(
+                    message: "Published update unavailable: \(downloadError.localizedDescription)\n\n"
+                        + "Local rebuild failed: \(buildError.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -285,9 +293,13 @@ final class AppUpdateManager {
 
         progress = 0.34
         progressLabel = "Testing…"
+        let developerDirectory = try? await Self.runCommand(
+            executable: "/usr/bin/xcode-select",
+            arguments: ["-p"]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
         _ = try await Self.runCommand(
-            executable: "/usr/bin/xcrun",
-            arguments: ["swift", "test"],
+            executable: "/usr/bin/swift",
+            arguments: Self.swiftTestArguments(developerDirectory: developerDirectory),
             currentDirectory: checkoutURL
         )
 
@@ -298,6 +310,30 @@ final class AppUpdateManager {
             currentDirectory: checkoutURL
         )
         return checkoutURL.appendingPathComponent(".build/app-package/JasonApp.app", isDirectory: true)
+    }
+
+    /// Command Line Tools place Swift Testing outside SwiftPM's usual search
+    /// path. Full Xcode already works, but accepting the same optional path is
+    /// harmless and lets one updater implementation support both toolchains.
+    nonisolated static func swiftTestArguments(developerDirectory: String?) -> [String] {
+        var arguments = ["test"]
+        guard let developerDirectory,
+              !developerDirectory.isEmpty else { return arguments }
+
+        let frameworks = URL(fileURLWithPath: developerDirectory, isDirectory: true)
+            .appendingPathComponent("Library/Developer/Frameworks", isDirectory: true)
+        guard FileManager.default.fileExists(
+            atPath: frameworks.appendingPathComponent("Testing.framework").path
+        ) else { return arguments }
+
+        arguments += [
+            "-Xswiftc", "-F\(frameworks.path)",
+            "-Xlinker", "-F\(frameworks.path)",
+            "-Xlinker", "-rpath", "-Xlinker", frameworks.path,
+            "-Xlinker", "-rpath", "-Xlinker",
+            frameworks.deletingLastPathComponent().appendingPathComponent("usr/lib").path,
+        ]
+        return arguments
     }
 
     private func fetchLatestRelease() async throws -> GitHubRelease {

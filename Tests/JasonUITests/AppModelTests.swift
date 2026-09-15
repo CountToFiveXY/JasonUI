@@ -108,6 +108,33 @@ struct AppUpdateTests {
         let missing = URL(fileURLWithPath: "/nonexistent/JasonApp.app")
         #expect(AppUpdateManager.sourceCommit(of: missing) == nil)
     }
+
+    @Test func addsSwiftTestingSearchPathsForCommandLineTools() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("JasonApp-ToolchainTests-\(UUID().uuidString)")
+        let testingFramework = root
+            .appendingPathComponent("Library/Developer/Frameworks/Testing.framework")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: testingFramework,
+            withIntermediateDirectories: true
+        )
+
+        let arguments = AppUpdateManager.swiftTestArguments(
+            developerDirectory: root.path
+        )
+        #expect(arguments.first == "test")
+        #expect(arguments.contains("-F\(testingFramework.deletingLastPathComponent().path)"))
+        #expect(arguments.contains(
+            root.appendingPathComponent("Library/Developer/usr/lib").path
+        ))
+    }
+
+    @Test func usesOrdinarySwiftTestArgumentsWithoutTestingFramework() {
+        #expect(
+            AppUpdateManager.swiftTestArguments(developerDirectory: "/nonexistent") == ["test"]
+        )
+    }
 }
 
 /// Mirrors the release feed shape AppUpdateManager decodes, which is private.
