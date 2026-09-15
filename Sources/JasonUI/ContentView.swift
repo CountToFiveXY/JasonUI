@@ -11,28 +11,28 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             VStack(spacing: 0) {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        sidebarRow(.dashboard)
-                        sidebarRow(.ledger)
-                        sidebarRow(.shortener)
+                VStack(alignment: .leading, spacing: 3) {
+                    sidebarRow(.dashboard)
+                    sidebarRow(.ledger)
+                    sidebarRow(.shortener)
                     DisclosureGroup(isExpanded: $isAsphaltExpanded) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                ForEach(Feature.asphaltLegends) { sidebarRow($0, indented: true) }
-                            }
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Feature.asphaltLegends) { sidebarRow($0, indented: true) }
+                        }
                     } label: {
                         Label("Asphalt Legends", systemImage: "flag.checkered")
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
-                                .padding(.vertical, 7)
+                            .padding(.vertical, 7)
                     }
-                        .padding(.horizontal, 10)
-                        sidebarRow(.workflows)
-                        sidebarRow(.quickLink)
-                    }
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    sidebarRow(.workflows)
+                    sidebarRow(.quickLink)
+                    Spacer(minLength: 0)
                 }
-                .scrollIndicators(.automatic, axes: .vertical)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.vertical, 8)
+                .clipped()
                 Divider()
                 GitHubFooter(updateManager: updateManager)
             }
