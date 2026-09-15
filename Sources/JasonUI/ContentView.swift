@@ -9,7 +9,7 @@ struct ContentView: View {
     @AppStorage("sidebarAsphaltExpanded") private var isAsphaltExpanded = true
 
     var body: some View {
-        NavigationSplitView(columnVisibility: .constant(.all)) {
+        HStack(spacing: 0) {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
                     sidebarRow(.dashboard)
@@ -36,24 +36,26 @@ struct ContentView: View {
                 Divider()
                 GitHubFooter(updateManager: updateManager)
             }
-            .navigationTitle("JasonApp")
-            .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 340)
-        } detail: {
-            Group {
-                switch selection {
-                case .dashboard: DashboardView()
-                case .ledger: LedgerView()
-                case .shortener: URLShortenerView()
-                case .ranking: RankingView()
-                case .leaderboard: LeaderboardView()
-                case .workflows: WorkflowsView()
-                case .quickLink: QuickLinkView()
+            .frame(width: 228)
+            .background(Color(nsColor: .windowBackgroundColor))
+
+            Divider()
+
+            NavigationStack {
+                Group {
+                    switch selection {
+                    case .dashboard: DashboardView()
+                    case .ledger: LedgerView()
+                    case .shortener: URLShortenerView()
+                    case .ranking: RankingView()
+                    case .leaderboard: LeaderboardView()
+                    case .workflows: WorkflowsView()
+                    case .quickLink: QuickLinkView()
+                    }
                 }
+                .padding(24)
             }
-            .padding(24)
         }
-        .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
         .task { await model.checkConnection() }
         .task { await updateManager.monitorForUpdates() }
     }
