@@ -20,15 +20,16 @@ function pause_on_error {
 }
 trap pause_on_error EXIT
 
-function show_xcode_tutorial {
+function show_toolchain_tutorial {
     echo
-    echo "Xcode is required to build JasonApp."
-    echo "1. Install Xcode from the Mac App Store."
-    echo "2. Open Xcode once and allow it to install required components."
-    echo "3. In Terminal, run:"
-    echo "   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    echo "A Swift toolchain is required to build JasonApp."
+    echo "1. In Terminal, install the Command Line Tools:"
+    echo "   xcode-select --install"
+    echo "2. If Xcode is installed and this still fails, accept its licence"
+    echo "   or switch to the Command Line Tools:"
     echo "   sudo xcodebuild -license accept"
-    echo "4. Run Install JasonApp.command again."
+    echo "   sudo xcode-select -s /Library/Developer/CommandLineTools"
+    echo "3. Run Install JasonApp.command again."
 }
 
 function choose_backend_directory {
@@ -50,14 +51,8 @@ echo "JasonApp Installer"
 echo "=================="
 echo
 
-if [[ ! -d /Applications/Xcode.app ]] || \
-   [[ "$(xcode-select -p 2>/dev/null || true)" != "/Applications/Xcode.app/Contents/Developer" ]]; then
-    show_xcode_tutorial
-    exit 1
-fi
-
-if ! xcodebuild -version >/dev/null 2>&1 || ! xcrun swift --version >/dev/null 2>&1; then
-    show_xcode_tutorial
+if ! swift --version >/dev/null 2>&1 || ! command -v codesign >/dev/null 2>&1; then
+    show_toolchain_tutorial
     exit 1
 fi
 
@@ -80,9 +75,23 @@ fi
 cd "$project_dir"
 echo "Using backend: $backend_dir"
 echo
+
+# The Command Line Tools ship swift-testing outside the platform directory SwiftPM
+# searches, so a Mac without Xcode needs it pointed out at compile and load time.
+testing_flags=()
+clt_frameworks="$(xcode-select -p 2>/dev/null || true)/Library/Developer/Frameworks"
+if [[ -d "$clt_frameworks/Testing.framework" ]]; then
+    testing_flags=(
+        -Xswiftc -F"$clt_frameworks"
+        -Xlinker -F"$clt_frameworks"
+        -Xlinker -rpath -Xlinker "$clt_frameworks"
+        -Xlinker -rpath -Xlinker "${clt_frameworks:h}/usr/lib"
+    )
+fi
+
 echo "Testing JasonUI…"
-if ! swift test; then
-    show_xcode_tutorial
+if ! swift test $testing_flags; then
+    show_toolchain_tutorial
     exit 1
 fi
 

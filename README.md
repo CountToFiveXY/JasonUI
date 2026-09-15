@@ -37,16 +37,19 @@ Workspace/
 
 ### Step 2: Install dependencies
 
-1. Install **Xcode** from the Mac App Store and open it once.
-2. Configure Xcode in Terminal:
+1. Install the **Command Line Tools**, which carry the Swift toolchain JasonApp
+   builds with. Full Xcode is not required.
 
    ```bash
-   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-   sudo xcodebuild -license accept
+   xcode-select --install
    ```
 
-3. Install [Homebrew](https://brew.sh/) if it is not already installed.
-4. Install the backend tools:
+   If Xcode is already installed and `swift --version` fails, accept its
+   licence (`sudo xcodebuild -license accept`) or switch to the Command Line
+   Tools (`sudo xcode-select -s /Library/Developer/CommandLineTools`).
+
+2. Install [Homebrew](https://brew.sh/) if it is not already installed.
+3. Install the backend tools:
 
    ```bash
    brew install redis temporal python
@@ -102,19 +105,19 @@ Click **Update** to automatically:
 3. Replace `/Applications/JasonApp.app` and restart it.
 
 Because the app is downloaded rather than compiled, **a Mac that only runs
-JasonApp needs neither Xcode nor a copy of this repository** to stay up to
-date.
+JasonApp needs neither a Swift toolchain nor a copy of this repository** to
+stay up to date.
 
 If no build has been published yet — CI still running, or working offline —
 the update falls back to compiling from a local checkout, which is the older
 behaviour: confirm the repository is clean, fast-forward `origin/main`, run
-the tests, rebuild, and install. That fallback needs Xcode and a clean
-worktree; without a checkout the update reports why it could not download
-instead.
+the tests, rebuild, and install. That fallback needs the Command Line Tools
+and a clean worktree; without a checkout the update reports why it could not
+download instead.
 
 ### Setting up another Mac
 
-To run JasonApp on a second Mac without installing Xcode, download
+To run JasonApp on a second Mac without a Swift toolchain, download
 `JasonApp.zip` from the [latest release](https://github.com/CountToFiveXY/JasonUI/releases/latest),
 unzip it into `/Applications`, and open it. The Update button maintains it from
 then on.
