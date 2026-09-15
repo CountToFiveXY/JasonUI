@@ -690,6 +690,10 @@ enum LeaderboardTime {
 }
 
 struct LeaderboardView: View {
+    private static let minimumPageWidth = CGFloat(TrackLineupPicker.slots)
+        * TrackLeaderboardCard.cardWidth
+        + CGFloat(TrackLineupPicker.slots - 1) * TrackLeaderboardCard.cardSpacing
+
     @Environment(AppModel.self) private var model
     @State private var cars: [CarSummary] = []
     @State private var trackCatalogue: [MapTrackSummary] = []
@@ -705,78 +709,83 @@ struct LeaderboardView: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            GroupBox("Selected Gauntlet Tracks") {
-                VStack(alignment: .leading, spacing: 10) {
-                    TrackLineupPicker(
-                        tracks: trackCatalogue,
-                        slotValues: slots,
-                        onSelect: { slot, value in setSlot(value, at: slot) }
-                    )
-                    Divider()
-                    TrackLineupReader(
-                        canLoadSelection: !selectedTrackIDs.isEmpty,
-                        isLoading: isLoadingLineup,
-                        onLoad: { data in await loadLineup(from: data) }
-                    )
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(2)
-            }
-
-            // Side by side so several tracks read on one screen without
-            // scrolling down; a narrow window scrolls sideways instead.
+        GeometryReader { geometry in
             ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: TrackLeaderboardCard.cardSpacing) {
-                    ForEach(lineup, id: \.slotKey) { entry in
-                        TrackLeaderboardCard(
-                            title: entry.displayName,
-                            subtitle: nil,
-                            times: entry.times,
-                            cars: cars,
-                            onRecord: { car, seconds in
-                                await record(
-                                    mapID: entry.mapID,
-                                    trackID: entry.id,
-                                    car: car,
-                                    seconds: seconds
-                                )
-                            },
-                            onDelete: { car in
-                                await delete(mapID: entry.mapID, trackID: entry.id, car: car)
+                VStack(alignment: .leading, spacing: 14) {
+                    GroupBox("Selected Gauntlet Tracks") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            TrackLineupPicker(
+                                tracks: trackCatalogue,
+                                slotValues: slots,
+                                onSelect: { slot, value in setSlot(value, at: slot) }
+                            )
+                            Divider()
+                            TrackLineupReader(
+                                canLoadSelection: !selectedTrackIDs.isEmpty,
+                                isLoading: isLoadingLineup,
+                                onLoad: { data in await loadLineup(from: data) }
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(2)
+                    }
+
+                    HStack(alignment: .top, spacing: TrackLeaderboardCard.cardSpacing) {
+                        ForEach(lineup, id: \.slotKey) { entry in
+                            TrackLeaderboardCard(
+                                title: entry.displayName,
+                                subtitle: nil,
+                                times: entry.times,
+                                cars: cars,
+                                onRecord: { car, seconds in
+                                    await record(
+                                        mapID: entry.mapID,
+                                        trackID: entry.id,
+                                        car: car,
+                                        seconds: seconds
+                                    )
+                                },
+                                onDelete: { car in
+                                    await delete(mapID: entry.mapID, trackID: entry.id, car: car)
+                                }
+                            )
+                            .id(entry.slotKey)
+                        }
+                    }
+
+                    if let error {
+                        CopyableErrorText(message: error)
+                            .font(.callout)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    GroupBox("Maps") {
+                        HStack(spacing: 10) {
+                            Text(catalogueSummary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if isLoadingCatalogue { ProgressView().controlSize(.small) }
+                            Spacer()
+                            if let url = model.client?.firestoreMapsURL() {
+                                Link("Open in Firestore", destination: url)
+                                    .help("Open the maps collection in the Firebase console")
                             }
-                        )
-                        .id(entry.slotKey)
+                            Button("Reload") { Task { await loadTrackCatalogue() } }
+                            Button("Add Map") { isAddingMap = true }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(2)
                     }
                 }
-                .padding(.bottom, 4)
+                .frame(
+                    width: max(geometry.size.width, Self.minimumPageWidth),
+                    height: geometry.size.height,
+                    alignment: .topLeading
+                )
             }
+            .scrollIndicators(.visible, axes: .horizontal)
             .defaultScrollAnchor(.topLeading)
-
-            if let error {
-                CopyableErrorText(message: error)
-                    .font(.callout)
-            }
-
-            Spacer(minLength: 0)
-
-            GroupBox("Maps") {
-                HStack(spacing: 10) {
-                    Text(catalogueSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if isLoadingCatalogue { ProgressView().controlSize(.small) }
-                    Spacer()
-                    if let url = model.client?.firestoreMapsURL() {
-                        Link("Open in Firestore", destination: url)
-                            .help("Open the maps collection in the Firebase console")
-                    }
-                    Button("Reload") { Task { await loadTrackCatalogue() } }
-                    Button("Add Map") { isAddingMap = true }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(2)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Leaderboard")
@@ -1156,32 +1165,27 @@ private struct TrackLineupPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ScrollView(.horizontal) {
-                HStack(alignment: .bottom, spacing: TrackLeaderboardCard.cardSpacing) {
-                    ForEach(0..<Self.slots, id: \.self) { slot in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Track \(slot + 1)")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            Picker("", selection: binding(for: slot)) {
-                                Text("None").tag("")
-                                if !tracks.isEmpty {
-                                    Divider()
-                                    ForEach(tracks) { track in
-                                        Text(track.menuLabel).tag(track.id)
-                                    }
+            HStack(alignment: .bottom, spacing: TrackLeaderboardCard.cardSpacing) {
+                ForEach(0..<Self.slots, id: \.self) { slot in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Track \(slot + 1)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: binding(for: slot)) {
+                            Text("None").tag("")
+                            if !tracks.isEmpty {
+                                Divider()
+                                ForEach(tracks) { track in
+                                    Text(track.menuLabel).tag(track.id)
                                 }
                             }
-                            .labelsHidden()
-                            .controlSize(.small)
-                            .frame(width: TrackLeaderboardCard.cardWidth)
                         }
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .frame(width: TrackLeaderboardCard.cardWidth)
                     }
                 }
-                .padding(.bottom, 5)
             }
-            .scrollIndicators(.visible, axes: .horizontal)
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(chosenCount == 0
                  ? "Pick up to five tracks, or read them from an image below."
