@@ -9,7 +9,7 @@ struct ContentView: View {
     @AppStorage("sidebarAsphaltExpanded") private var isAsphaltExpanded = true
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             VStack(spacing: 0) {
                 List(selection: $selection) {
                     sidebarRow(.dashboard)
@@ -28,6 +28,7 @@ struct ContentView: View {
                     sidebarRow(.workflows)
                     sidebarRow(.quickLink)
                 }
+                .listStyle(.sidebar)
                 Divider()
                 GitHubFooter(updateManager: updateManager)
             }
@@ -47,6 +48,8 @@ struct ContentView: View {
             }
             .padding(24)
         }
+        .navigationSplitViewStyle(.balanced)
+        .toolbar(removing: .sidebarToggle)
         .task { await model.checkConnection() }
         .task { await updateManager.monitorForUpdates() }
     }
