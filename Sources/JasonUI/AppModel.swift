@@ -24,6 +24,7 @@ final class AppModel {
     var redisState = ServiceState.unknown
     var kafkaState = ServiceState.unknown
     var temporalState = ServiceState.unknown
+    var googleCloudState = ServiceState.unknown
     var errorMessage: String?
 
     private static let serverKey = "serverAddress"
@@ -57,6 +58,7 @@ final class AppModel {
             redisState = .unknown
             kafkaState = .unknown
             temporalState = .unsupported
+            googleCloudState = .unknown
             return
         }
         isChecking = true
@@ -64,10 +66,12 @@ final class AppModel {
         redisState = .checking
         kafkaState = .checking
         temporalState = .checking
+        googleCloudState = .checking
         defer { isChecking = false }
 
         async let healthCheck = client.health()
         async let temporalCheck = client.temporalIsAvailable()
+        async let googleCloudCheck = checkGoogleCloud(using: client)
 
         do {
             health = try await healthCheck
@@ -101,6 +105,7 @@ final class AppModel {
         } else {
             temporalState = .unsupported
         }
+        googleCloudState = await googleCloudCheck
     }
 
     func activateAllServices() async {
@@ -200,6 +205,24 @@ final class AppModel {
         redisState = .unknown
         kafkaState = .unavailable("Stopped")
         temporalState = .unavailable("Stopped")
+        googleCloudState = .unavailable("Stopped")
+    }
+
+    private func checkGoogleCloud(using client: APIClient) async -> ServiceState {
+        do {
+            _ = try await client.tracks()
+            return .running("Connected to Firestore")
+        } catch {
+            return .unavailable(Self.googleCloudFailureDetail(for: error.localizedDescription))
+        }
+    }
+
+    nonisolated static func googleCloudFailureDetail(for message: String) -> String {
+        let normalized = message.lowercased()
+        if normalized.contains("credential") || normalized.contains("unauthenticated") {
+            return "Not authenticated. Run: gcloud auth application-default login"
+        }
+        return message
     }
 
     private func resolveBackendDirectory(allowSelection: Bool) async -> URL? {

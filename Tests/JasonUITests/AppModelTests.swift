@@ -53,6 +53,18 @@ struct AppModelTests {
         )
         #expect(result == validDirectory.standardizedFileURL.resolvingSymlinksInPath())
     }
+
+    @Test func givesGoogleCloudLoginHelpForMissingCredentials() {
+        let detail = AppModel.googleCloudFailureDetail(
+            for: "Firestore credentials are not configured."
+        )
+        #expect(detail == "Not authenticated. Run: gcloud auth application-default login")
+    }
+
+    @Test func preservesOtherGoogleCloudConnectionErrors() {
+        let detail = AppModel.googleCloudFailureDetail(for: "The network connection was lost.")
+        #expect(detail == "The network connection was lost.")
+    }
 }
 
 struct AppUpdateTests {

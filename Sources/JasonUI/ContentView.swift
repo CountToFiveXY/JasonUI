@@ -195,6 +195,7 @@ struct DashboardView: View {
                 ServiceStatusRow(title: "Redis", state: model.redisState)
                 ServiceStatusRow(title: "Kafka", state: model.kafkaState)
                 ServiceStatusRow(title: "Temporal", state: model.temporalState)
+                ServiceStatusRow(title: "Google Cloud / Firestore", state: model.googleCloudState)
                 HStack {
                     Spacer()
                     Button("Check Connection") {
