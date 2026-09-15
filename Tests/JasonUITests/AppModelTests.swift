@@ -135,6 +135,31 @@ struct AppUpdateTests {
             AppUpdateManager.swiftTestArguments(developerDirectory: "/nonexistent") == ["test"]
         )
     }
+
+    @Test func findsBackendGitRepositoryForUpdates() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("JasonApp-BackendUpdateTests-\(UUID().uuidString)")
+        let backend = root.appendingPathComponent("JasonPython")
+        let script = backend.appendingPathComponent("scripts/run_local.sh")
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(
+            at: backend.appendingPathComponent(".git"),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: script.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        #expect(fileManager.createFile(atPath: script.path, contents: Data("#!/bin/sh\n".utf8)))
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        #expect(
+            AppUpdateManager.validBackendDirectory(in: [root, backend])
+                == backend.standardizedFileURL.resolvingSymlinksInPath()
+        )
+    }
 }
 
 /// Mirrors the release feed shape AppUpdateManager decodes, which is private.

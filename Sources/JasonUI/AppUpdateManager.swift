@@ -63,12 +63,19 @@ final class AppUpdateManager {
     var state: State = .idle
     @ObservationIgnored private var remoteCommit: String?
     @ObservationIgnored private var installedCommit: String?
+    @ObservationIgnored private var backendRemoteCommit: String?
+    @ObservationIgnored private var backendDirectory: URL?
+    @ObservationIgnored private var frontendNeedsUpdate = false
+    @ObservationIgnored private var backendNeedsUpdate = false
     var progress = 0.0
     var progressLabel = ""
     var errorMessage: String?
 
-    private static let commitURL = URL(
+    private static let frontendCommitURL = URL(
         string: "https://api.github.com/repos/CountToFiveXY/JasonUI/commits/main"
+    )!
+    private static let backendCommitURL = URL(
+        string: "https://api.github.com/repos/CountToFiveXY/JasonPython/commits/main"
     )!
     private static let latestReleaseURL = URL(
         string: "https://api.github.com/repos/CountToFiveXY/JasonUI/releases/latest"
@@ -77,6 +84,7 @@ final class AppUpdateManager {
     private static let installedAppURL = URL(fileURLWithPath: "/Applications/JasonApp.app")
     private static let checkInterval = Duration.seconds(15 * 60)
     private static let frontendDirectoryKey = "frontendDirectory"
+    private static let backendDirectoryKey = "backendDirectory"
 
     var updateAvailable: Bool { state == .updateAvailable }
     var isChecking: Bool { state == .checking }
@@ -110,11 +118,26 @@ final class AppUpdateManager {
         errorMessage = nil
 
         do {
-            let remoteCommit = try await fetchRemoteCommit()
-            let installedCommit = try await installedSourceCommit()
+            let backendDirectory = try resolveBackendDirectory()
+            async let remoteCommitTask = fetchRemoteCommit(from: Self.frontendCommitURL)
+            async let installedCommitTask = installedSourceCommit()
+            async let backendRemoteCommitTask = fetchRemoteCommit(from: Self.backendCommitURL)
+            async let backendInstalledCommitTask = repositoryCommit(at: backendDirectory)
+            let (remoteCommit, installedCommit, backendRemoteCommit, backendInstalledCommit) =
+                try await (
+                    remoteCommitTask,
+                    installedCommitTask,
+                    backendRemoteCommitTask,
+                    backendInstalledCommitTask
+                )
+
             self.remoteCommit = remoteCommit
             self.installedCommit = installedCommit
-            state = remoteCommit == installedCommit ? .current : .updateAvailable
+            self.backendRemoteCommit = backendRemoteCommit
+            self.backendDirectory = backendDirectory
+            frontendNeedsUpdate = remoteCommit != installedCommit
+            backendNeedsUpdate = backendRemoteCommit != backendInstalledCommit
+            state = frontendNeedsUpdate || backendNeedsUpdate ? .updateAvailable : .current
         } catch {
             state = .idle
             errorMessage = error.localizedDescription
@@ -140,6 +163,20 @@ final class AppUpdateManager {
         var oldAppBackupURL: URL?
 
         do {
+            if backendNeedsUpdate {
+                progress = 0.05
+                progressLabel = "Updating JasonPython…"
+                try await updateBackendCheckout()
+            }
+
+            guard frontendNeedsUpdate else {
+                progress = 0
+                progressLabel = ""
+                state = .current
+                backendNeedsUpdate = false
+                return
+            }
+
             try fileManager.createDirectory(at: updateRoot, withIntermediateDirectories: true)
             let packagedAppURL = try await preparePackagedApp(in: updateRoot)
 
@@ -312,6 +349,39 @@ final class AppUpdateManager {
         return checkoutURL.appendingPathComponent(".build/app-package/JasonApp.app", isDirectory: true)
     }
 
+    private func updateBackendCheckout() async throws {
+        guard let backendDirectory else {
+            throw UpdatePreparationError(
+                message: "Could not find the local JasonPython repository. "
+                    + "Run Install JasonApp.command again."
+            )
+        }
+
+        let changes = try await Self.runCommand(
+            executable: "/usr/bin/git",
+            arguments: ["status", "--porcelain"],
+            currentDirectory: backendDirectory
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard changes.isEmpty else {
+            throw UpdatePreparationError(
+                message: "JasonPython has local changes. Commit or stash them before updating."
+            )
+        }
+
+        _ = try await Self.runCommand(
+            executable: "/usr/bin/git",
+            arguments: ["pull", "--ff-only", "origin", "main"],
+            currentDirectory: backendDirectory
+        )
+
+        let installed = try await repositoryCommit(at: backendDirectory)
+        if let backendRemoteCommit, installed != backendRemoteCommit {
+            throw UpdatePreparationError(
+                message: "JasonPython did not reach the latest remote commit after updating."
+            )
+        }
+    }
+
     /// Command Line Tools place Swift Testing outside SwiftPM's usual search
     /// path. Full Xcode already works, but accepting the same optional path is
     /// harmless and lets one updater implementation support both toolchains.
@@ -385,8 +455,8 @@ final class AppUpdateManager {
         try process.run()
     }
 
-    private func fetchRemoteCommit() async throws -> String {
-        var request = URLRequest(url: Self.commitURL)
+    private func fetchRemoteCommit(from url: URL) async throws -> String {
+        var request = URLRequest(url: url)
         request.setValue("JasonApp/1.0", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -395,6 +465,14 @@ final class AppUpdateManager {
             throw URLError(.badServerResponse)
         }
         return try JSONDecoder().decode(GitHubCommit.self, from: data).sha
+    }
+
+    private func repositoryCommit(at directory: URL) async throws -> String {
+        try await Self.runCommand(
+            executable: "/usr/bin/git",
+            arguments: ["rev-parse", "HEAD"],
+            currentDirectory: directory
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func installedSourceCommit() async throws -> String {
@@ -458,6 +536,37 @@ final class AppUpdateManager {
         )
     }
 
+    private func resolveBackendDirectory() throws -> URL {
+        let fileManager = FileManager.default
+        let homeDirectory = fileManager.homeDirectoryForCurrentUser
+        var candidates: [URL] = []
+
+        if let savedPath = UserDefaults.standard.string(forKey: Self.backendDirectoryKey) {
+            candidates.append(URL(fileURLWithPath: savedPath, isDirectory: true))
+        }
+        if let frontendPath = UserDefaults.standard.string(forKey: Self.frontendDirectoryKey) {
+            candidates.append(
+                URL(fileURLWithPath: frontendPath, isDirectory: true)
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("JasonPython", isDirectory: true)
+            )
+        }
+        candidates += [
+            homeDirectory.appendingPathComponent("JasonApp/JasonPython", isDirectory: true),
+            homeDirectory.appendingPathComponent("Workspace/JasonPython", isDirectory: true),
+            homeDirectory.appendingPathComponent("Developer/JasonPython", isDirectory: true),
+        ]
+
+        guard let directory = Self.validBackendDirectory(in: candidates) else {
+            throw UpdatePreparationError(
+                message: "Could not find the local JasonPython repository. "
+                    + "Run Install JasonApp.command again."
+            )
+        }
+        UserDefaults.standard.set(directory.path, forKey: Self.backendDirectoryKey)
+        return directory
+    }
+
     nonisolated static func validFrontendDirectory(in candidates: [URL]) -> URL? {
         let fileManager = FileManager.default
         for candidate in candidates {
@@ -466,6 +575,20 @@ final class AppUpdateManager {
             let gitDirectory = directory.appendingPathComponent(".git", isDirectory: true)
             if fileManager.fileExists(atPath: package.path),
                fileManager.fileExists(atPath: gitDirectory.path) {
+                return directory
+            }
+        }
+        return nil
+    }
+
+    nonisolated static func validBackendDirectory(in candidates: [URL]) -> URL? {
+        let fileManager = FileManager.default
+        for candidate in candidates {
+            let directory = candidate.standardizedFileURL.resolvingSymlinksInPath()
+            let gitDirectory = directory.appendingPathComponent(".git")
+            let startupScript = directory.appendingPathComponent("scripts/run_local.sh")
+            if fileManager.fileExists(atPath: gitDirectory.path),
+               fileManager.isExecutableFile(atPath: startupScript.path) {
                 return directory
             }
         }
