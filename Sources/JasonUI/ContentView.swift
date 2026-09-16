@@ -704,7 +704,8 @@ struct LeaderboardView: View {
     /// launches. Stored as one string because AppStorage holds no arrays.
     @AppStorage("leaderboardLineupSlots") private var storedSlots = ""
     /// The tracks on show, chosen in the selectors or read off an image.
-    @State private var lineup: [MapTrackLeaderboard] = []
+    @State private var lineup: [Int: MapTrackLeaderboard] = [:]
+    @State private var loadingSlotValues: [Int: String] = [:]
     @State private var isLoading = false
     @State private var isAddingMap = false
     @State private var error: String?
@@ -718,11 +719,13 @@ struct LeaderboardView: View {
                             TrackLineupPicker(
                                 tracks: trackCatalogue,
                                 slotValues: slots,
-                                onSelect: { slot, value in setSlot(value, at: slot) }
+                                onSelect: { slot, value in
+                                    setSlot(value, at: slot)
+                                    Task { await loadSelectedTrack(value, into: slot) }
+                                }
                             )
                             Divider()
                             TrackLineupReader(
-                                canLoadSelection: !selectedTrackIDs.isEmpty,
                                 isLoading: isLoadingLineup,
                                 onLoad: { data in await loadLineup(from: data) }
                             )
@@ -732,25 +735,32 @@ struct LeaderboardView: View {
                     }
 
                     HStack(alignment: .top, spacing: TrackLeaderboardCard.cardSpacing) {
-                        ForEach(lineup, id: \.slotKey) { entry in
-                            TrackLeaderboardCard(
-                                title: entry.displayName,
-                                subtitle: nil,
-                                times: entry.times,
-                                cars: cars,
-                                onRecord: { car, seconds in
-                                    await record(
-                                        mapID: entry.mapID,
-                                        trackID: entry.id,
-                                        car: car,
-                                        seconds: seconds
-                                    )
-                                },
-                                onDelete: { car in
-                                    await delete(mapID: entry.mapID, trackID: entry.id, car: car)
-                                }
-                            )
-                            .id(entry.slotKey)
+                        ForEach(0..<TrackLineupPicker.slots, id: \.self) { slot in
+                            if loadingSlotValues[slot] != nil {
+                                ProgressView()
+                                    .frame(width: TrackLeaderboardCard.cardWidth, height: 80)
+                            } else if let entry = lineup[slot] {
+                                TrackLeaderboardCard(
+                                    title: entry.displayName,
+                                    subtitle: nil,
+                                    times: entry.times,
+                                    cars: cars,
+                                    onRecord: { car, seconds in
+                                        await record(
+                                            mapID: entry.mapID,
+                                            trackID: entry.id,
+                                            car: car,
+                                            seconds: seconds
+                                        )
+                                    },
+                                    onDelete: { car in
+                                        await delete(mapID: entry.mapID, trackID: entry.id, car: car)
+                                    }
+                                )
+                                .id("\(slot)/\(entry.slotKey)")
+                            } else {
+                                Color.clear.frame(width: TrackLeaderboardCard.cardWidth, height: 1)
+                            }
                         }
                     }
 
@@ -816,6 +826,8 @@ struct LeaderboardView: View {
         defer { isLoadingCatalogue = false }
         do {
             trackCatalogue = try await client.tracks()
+            migrateStoredSlotsIfNeeded()
+            await loadSelectedTracks()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -844,19 +856,86 @@ struct LeaderboardView: View {
         return (0..<TrackLineupPicker.slots).map { $0 < parts.count ? parts[$0] : "" }
     }
 
-    private var selectedTrackIDs: [String] {
-        slots.filter { !$0.isEmpty }
-    }
-
     private func setSlot(_ value: String, at index: Int) {
         var parts = slots
         parts[index] = value
         storedSlots = parts.joined(separator: "\u{1}")
+        if value.isEmpty {
+            lineup[index] = nil
+            loadingSlotValues[index] = nil
+        }
     }
 
-    /// Load the line-up: read the names off an image when given one, otherwise
-    /// use the selectors. An image also fills the selectors, so a misread name
-    /// can be corrected there rather than by pasting again.
+    /// Older builds stored only a track id. Convert those values to the
+    /// map-qualified keys used by the grouped menu whenever the match is clear.
+    private func migrateStoredSlotsIfNeeded() {
+        var parts = slots
+        var changed = false
+        for index in parts.indices where !parts[index].isEmpty && !parts[index].contains("/") {
+            let matches = trackCatalogue.filter { $0.id == parts[index] }
+            if matches.count == 1, let match = matches.first {
+                parts[index] = match.slotKey
+                changed = true
+            }
+        }
+        if changed {
+            storedSlots = parts.joined(separator: "\u{1}")
+        }
+    }
+
+    private func loadSelectedTracks() async {
+        for (slot, value) in slots.enumerated() where !value.isEmpty {
+            await loadSelectedTrack(value, into: slot)
+        }
+    }
+
+    private func loadSelectedTrack(_ value: String, into slot: Int) async {
+        guard !value.isEmpty else {
+            lineup[slot] = nil
+            return
+        }
+        guard let summary = trackCatalogue.first(where: { $0.slotKey == value }) else {
+            lineup[slot] = nil
+            return
+        }
+        guard let client = model.client else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return
+        }
+
+        loadingSlotValues[slot] = value
+        defer {
+            if loadingSlotValues[slot] == value {
+                loadingSlotValues[slot] = nil
+            }
+        }
+        do {
+            let map = try await client.mapLeaderboard(mapID: summary.mapID)
+            guard slots[slot] == value else { return }
+            guard let track = map.tracks.first(where: { $0.id == summary.id }) else {
+                error = "Track '\(summary.displayName)' was not found in \(summary.mapName)."
+                lineup[slot] = nil
+                return
+            }
+            lineup[slot] = MapTrackLeaderboard(
+                id: track.id,
+                name: track.name,
+                chineseName: track.chineseName,
+                times: track.times,
+                mapID: summary.mapID,
+                mapName: summary.mapName,
+                mapChineseName: summary.mapChineseName,
+                requestedName: summary.name
+            )
+            error = nil
+        } catch {
+            guard slots[slot] == value else { return }
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Read a line-up from an image. Dropdown changes load their own table
+    /// immediately, so this explicit action belongs only to image input.
     private func loadLineup(from image: Data?) async -> String? {
         guard let client = model.client else {
             error = APIError.invalidBaseURL.localizedDescription
@@ -866,27 +945,25 @@ struct LeaderboardView: View {
         defer { isLoadingLineup = false }
 
         do {
-            var names = selectedTrackIDs
-            if let image {
-                names = try await client.readText(image: image).lines.map(\.text)
-                guard !names.isEmpty else {
-                    error = nil
-                    return "No text was found in that image."
-                }
+            guard let image else { return "Paste or drop an image first." }
+            let names = try await client.readText(image: image).lines.map(\.text)
+            guard !names.isEmpty else {
+                error = nil
+                return "No text was found in that image."
             }
-            guard !names.isEmpty else { return nil }
 
             let lookup = try await client.lookupTracks(names: names)
-            lineup = lookup.tracks
+            lineup = Dictionary(
+                uniqueKeysWithValues: lookup.tracks.prefix(TrackLineupPicker.slots)
+                    .enumerated().map { ($0.offset, $0.element) }
+            )
             error = nil
 
-            if image != nil {
-                var parts = Array(repeating: "", count: TrackLineupPicker.slots)
-                for (index, track) in lookup.tracks.prefix(parts.count).enumerated() {
-                    parts[index] = track.id
-                }
-                storedSlots = parts.joined(separator: "\u{1}")
+            var parts = Array(repeating: "", count: TrackLineupPicker.slots)
+            for (index, track) in lookup.tracks.prefix(parts.count).enumerated() {
+                parts[index] = track.slotKey
             }
+            storedSlots = parts.joined(separator: "\u{1}")
 
             var status = "Loaded \(lookup.tracks.count) of \(names.count)."
             if !lookup.unmatched.isEmpty {
@@ -943,7 +1020,7 @@ struct LeaderboardView: View {
         }
         do {
             let track = try await mutation(client)
-            lineup = lineup.map { entry in
+            lineup = lineup.mapValues { entry in
                 entry.mapID == mapID && entry.id == track.id
                     ? entry.replacingTimes(track.times)
                     : entry
@@ -1013,11 +1090,13 @@ private struct TrackLeaderboardCard: View {
     @State private var timeText = ""
     @State private var isSaving = false
 
-    // Sized so five cards and five selectors fit one screen.
-    static let cardWidth: CGFloat = 176
+    // Wide enough for an editable time and explicit Save action. The entire
+    // Leaderboard page scrolls horizontally when five cards exceed the window.
+    static let cardWidth: CGFloat = 228
     static let cardSpacing: CGFloat = 10
-    private static let carWidth: CGFloat = 86
-    private static let timeWidth: CGFloat = 62
+    static let carWidth: CGFloat = 74
+    static let timeWidth: CGFloat = 68
+    static let saveWidth: CGFloat = 46
     private static let deleteWidth: CGFloat = 18
 
     var body: some View {
@@ -1032,7 +1111,11 @@ private struct TrackLeaderboardCard: View {
                         .padding(.vertical, 7)
                 } else {
                     ForEach(times) { entry in
-                        row(entry)
+                        EditableLapTimeRow(
+                            entry: entry,
+                            onSave: { seconds in await onRecord(entry.car, seconds) },
+                            onDelete: { await onDelete(entry.car) }
+                        )
                         Divider()
                     }
                 }
@@ -1059,39 +1142,15 @@ private struct TrackLeaderboardCard: View {
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Text("Car").frame(width: Self.carWidth, alignment: .leading)
             Text("Time(s)").frame(width: Self.timeWidth, alignment: .trailing)
+            Text("Save").frame(width: Self.saveWidth, alignment: .center)
             Spacer().frame(width: Self.deleteWidth)
         }
         .font(.caption2.weight(.semibold))
         .foregroundStyle(.secondary)
         .padding(.bottom, 4)
-    }
-
-    private func row(_ entry: LapTimeEntry) -> some View {
-        HStack(spacing: 6) {
-            Text(entry.car)
-                .fontWeight(entry.rank == 1 ? .semibold : .regular)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .help(entry.car)
-                .frame(width: Self.carWidth, alignment: .leading)
-            Text(entry.displayTime)
-                .font(.system(.callout, design: .monospaced))
-                .fontWeight(entry.rank == 1 ? .semibold : .regular)
-                .frame(width: Self.timeWidth, alignment: .trailing)
-            Button {
-                Task { _ = await onDelete(entry.car) }
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("Remove \(entry.car) from this track")
-            .frame(width: Self.deleteWidth)
-        }
-        .font(.callout)
-        .padding(.vertical, 4)
     }
 
     /// Stacked rather than in one line: the card is too narrow for a picker,
@@ -1155,6 +1214,80 @@ private struct TrackLeaderboardCard: View {
     }
 }
 
+/// An existing result remains readable like a table row, but its time can be
+/// corrected in place. Saving uses the same idempotent PUT as adding a time.
+private struct EditableLapTimeRow: View {
+    let entry: LapTimeEntry
+    let onSave: (Double) async -> Bool
+    let onDelete: () async -> Bool
+
+    @State private var timeText: String
+    @State private var isSaving = false
+
+    init(
+        entry: LapTimeEntry,
+        onSave: @escaping (Double) async -> Bool,
+        onDelete: @escaping () async -> Bool
+    ) {
+        self.entry = entry
+        self.onSave = onSave
+        self.onDelete = onDelete
+        _timeText = State(initialValue: entry.displayTime)
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(entry.car)
+                .fontWeight(entry.rank == 1 ? .semibold : .regular)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(entry.car)
+                .frame(width: TrackLeaderboardCard.carWidth, alignment: .leading)
+            TextField("Time", text: $timeText)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .multilineTextAlignment(.trailing)
+                .font(.system(.callout, design: .monospaced))
+                .frame(width: TrackLeaderboardCard.timeWidth)
+            Button(isSaving ? "…" : "Save") {
+                Task { await save() }
+            }
+            .controlSize(.mini)
+            .frame(width: TrackLeaderboardCard.saveWidth)
+            .disabled(!canSave || isSaving)
+            Button {
+                Task { _ = await onDelete() }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Remove \(entry.car) from this track")
+            .frame(width: 18)
+        }
+        .font(.callout)
+        .padding(.vertical, 3)
+        .onChange(of: entry.seconds) { _, _ in
+            timeText = entry.displayTime
+        }
+    }
+
+    private var parsedSeconds: Double? { LeaderboardTime.seconds(from: timeText) }
+
+    private var canSave: Bool {
+        guard let parsedSeconds else { return false }
+        return abs(parsedSeconds - entry.seconds) >= 0.000_5
+    }
+
+    private func save() async {
+        guard let parsedSeconds else { return }
+        isSaving = true
+        defer { isSaving = false }
+        if await onSave(parsedSeconds) {
+            timeText = String(format: "%.3f", parsedSeconds)
+        }
+    }
+}
+
 /// Picks the tracks to show, as a row of selectors. The chosen identifiers
 /// live in the pane so an image can fill them in.
 private struct TrackLineupPicker: View {
@@ -1163,6 +1296,12 @@ private struct TrackLineupPicker: View {
     let tracks: [MapTrackSummary]
     let slotValues: [String]
     let onSelect: (Int, String) -> Void
+
+    private struct MapGroup: Identifiable {
+        let id: String
+        let name: String
+        var tracks: [MapTrackSummary]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1176,8 +1315,12 @@ private struct TrackLineupPicker: View {
                             Text("None").tag("")
                             if !tracks.isEmpty {
                                 Divider()
-                                ForEach(tracks) { track in
-                                    Text(track.menuLabel).tag(track.id)
+                                ForEach(groups) { group in
+                                    Section(group.name) {
+                                        ForEach(group.tracks) { track in
+                                            Text(track.displayName).tag(track.slotKey)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1200,6 +1343,17 @@ private struct TrackLineupPicker: View {
         slotValues.filter { !$0.isEmpty }.count
     }
 
+    /// Preserve the backend's map release order and each map's track order.
+    private var groups: [MapGroup] {
+        tracks.reduce(into: []) { groups, track in
+            if let index = groups.firstIndex(where: { $0.id == track.mapID }) {
+                groups[index].tracks.append(track)
+            } else {
+                groups.append(MapGroup(id: track.mapID, name: track.mapName, tracks: [track]))
+            }
+        }
+    }
+
     private func binding(for slot: Int) -> Binding<String> {
         Binding(
             get: { slot < slotValues.count ? slotValues[slot] : "" },
@@ -1211,7 +1365,6 @@ private struct TrackLineupPicker: View {
 /// The image alternative, and the one button that loads the line-up: from the
 /// pasted image when there is one, otherwise from the selectors above.
 private struct TrackLineupReader: View {
-    let canLoadSelection: Bool
     let isLoading: Bool
     let onLoad: (Data?) async -> String?
 
@@ -1229,10 +1382,8 @@ private struct TrackLineupReader: View {
                 Task { await load() }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isLoading || (image == nil && !canLoadSelection))
-            .help(image == nil
-                  ? "Load the tracks selected above"
-                  : "Read the track names from the image, then load their times")
+            .disabled(isLoading || image == nil)
+            .help("Read the track names from the image, then load their times")
             // Only an image can be cleared here; the selectors keep whatever
             // the image filled in, so a line-up survives clearing the picture.
             if image != nil {
