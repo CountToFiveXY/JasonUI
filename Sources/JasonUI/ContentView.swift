@@ -1235,35 +1235,43 @@ private struct TrackLeaderboardCard: View {
 
     private var inputs: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 5) {
-                Picker("", selection: $carChoice) {
-                    Text("Select car").tag(CarChoice.unselected)
-                    if !cars.isEmpty {
-                        Divider()
-                        ForEach(cars) { car in
-                            Text(car.name).tag(CarChoice.existing(car.name))
-                        }
-                    }
-                    Divider()
-                    Text("Other…").tag(CarChoice.other)
-                }
-                .labelsHidden()
-                .controlSize(.small)
-                .frame(maxWidth: .infinity)
-                BoxedTextField(
-                    placeholder: "18.520",
-                    text: $timeText,
-                    width: Self.timeWidth,
-                    alignment: .trailing
+            GeometryReader { geometry in
+                let carPickerWidth = max(
+                    80,
+                    geometry.size.width - Self.timeWidth - Self.saveWidth - 10
                 )
-                Button(isSaving ? "…" : "Save") {
-                    Task { await save() }
+
+                HStack(spacing: 5) {
+                    Picker("", selection: $carChoice) {
+                        Text("Select car").tag(CarChoice.unselected)
+                        if !cars.isEmpty {
+                            Divider()
+                            ForEach(cars) { car in
+                                Text(car.name).tag(CarChoice.existing(car.name))
+                            }
+                        }
+                        Divider()
+                        Text("Other…").tag(CarChoice.other)
+                    }
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: carPickerWidth)
+                    BoxedTextField(
+                        placeholder: "18.520",
+                        text: $timeText,
+                        width: Self.timeWidth,
+                        alignment: .trailing
+                    )
+                    Button(isSaving ? "…" : "Save") {
+                        Task { await save() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .frame(width: Self.saveWidth)
+                    .disabled(!canSave || isSaving)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .frame(width: Self.saveWidth)
-                .disabled(!canSave || isSaving)
             }
+            .frame(height: 24)
             if carChoice == .other {
                 BoxedTextField(placeholder: "New car", text: $car)
             }
@@ -1401,10 +1409,11 @@ private struct TrackLineupPicker: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .bottom, spacing: TrackLeaderboardCard.cardSpacing) {
                 ForEach(0..<Self.slots, id: \.self) { slot in
-                    VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
                         Text("Track \(slot + 1)")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
+                            .fixedSize()
                         Picker("", selection: binding(for: slot)) {
                             Text("None").tag("")
                             if !tracks.isEmpty {
