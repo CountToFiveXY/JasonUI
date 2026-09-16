@@ -81,6 +81,38 @@ struct ContentView: View {
     }
 }
 
+/// SwiftUI otherwise follows the macOS "Show scroll bars" preference and can
+/// hide the only affordance for a wide page. Keep this page's horizontal bar
+/// present and draggable regardless of that system setting.
+private struct PersistentHorizontalScroller: NSViewRepresentable {
+    final class MarkerView: NSView {
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            configureScroller()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            configureScroller()
+        }
+
+        func configureScroller() {
+            guard let scrollView = enclosingScrollView else { return }
+            scrollView.hasHorizontalScroller = true
+            scrollView.autohidesScrollers = false
+            scrollView.scrollerStyle = .legacy
+        }
+    }
+
+    func makeNSView(context: Context) -> MarkerView {
+        MarkerView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: MarkerView, context: Context) {
+        nsView.configureScroller()
+    }
+}
+
 private struct GitHubFooter: View {
     let updateManager: AppUpdateManager
     private let repositoriesURL = URL(string: "https://github.com/CountToFiveXY?tab=repositories")!
@@ -723,9 +755,11 @@ enum LeaderboardTime {
 }
 
 struct LeaderboardView: View {
-    private static let minimumPageWidth = CGFloat(TrackLineupPicker.slots)
-        * TrackLeaderboardCard.cardWidth
-        + CGFloat(TrackLineupPicker.slots - 1) * TrackLeaderboardCard.cardSpacing
+    /// The Leaderboard is one fixed canvas. A narrow window reveals the
+    /// horizontal page scroller instead of squeezing or clipping columns.
+    private static let minimumCanvasWidth: CGFloat = 1_400
+    private static let minimumCanvasHeight: CGFloat = 720
+    private static let canvasPadding: CGFloat = 12
 
     @Environment(AppModel.self) private var model
     @State private var cars: [CarSummary] = []
@@ -741,19 +775,28 @@ struct LeaderboardView: View {
     @State private var isLoading = false
     @State private var isAddingMap = false
     @State private var error: String?
-    @State private var horizontalScrollColumn = 0.0
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                VStack(spacing: 6) {
-                    ScrollView(.horizontal) {
-                        VStack(alignment: .leading, spacing: 14) {
-                    GroupBox("Selected Gauntlet Tracks") {
+            let canvasWidth = max(Self.minimumCanvasWidth, geometry.size.width)
+            let canvasHeight = max(Self.minimumCanvasHeight, geometry.size.height)
+            let contentWidth = canvasWidth - (Self.canvasPadding * 2)
+            let columnWidth = (
+                contentWidth
+                    - CGFloat(TrackLineupPicker.slots - 1) * TrackLeaderboardCard.cardSpacing
+            ) / CGFloat(TrackLineupPicker.slots)
+
+            ScrollView([.horizontal, .vertical]) {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Selected Gauntlet Tracks")
+                            .font(.callout.weight(.medium))
+
                         VStack(alignment: .leading, spacing: 10) {
                             TrackLineupPicker(
                                 tracks: trackCatalogue,
                                 slotValues: slots,
+                                columnWidth: columnWidth,
                                 onSelect: { slot, value in
                                     setSlot(value, at: slot)
                                     Task { await loadSelectedTrack(value, into: slot) }
@@ -766,16 +809,21 @@ struct LeaderboardView: View {
                             )
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(2)
                     }
+                    .padding(.vertical, 10)
+                    .background(
+                        Color(nsColor: .controlBackgroundColor).opacity(0.55),
+                        in: RoundedRectangle(cornerRadius: 12)
+                    )
 
                     HStack(alignment: .top, spacing: TrackLeaderboardCard.cardSpacing) {
                         ForEach(0..<TrackLineupPicker.slots, id: \.self) { slot in
                             if loadingSlotValues[slot] != nil {
                                 ProgressView()
-                                    .frame(width: TrackLeaderboardCard.cardWidth, height: 80)
+                                    .frame(width: columnWidth, height: 80)
                             } else if let entry = lineup[slot] {
                                 TrackLeaderboardCard(
+                                    width: columnWidth,
                                     title: entry.displayName,
                                     subtitle: nil,
                                     times: entry.times,
@@ -794,7 +842,7 @@ struct LeaderboardView: View {
                                 )
                                 .id("\(slot)/\(entry.slotKey)")
                             } else {
-                                Color.clear.frame(width: TrackLeaderboardCard.cardWidth, height: 1)
+                                Color.clear.frame(width: columnWidth, height: 1)
                             }
                         }
                     }
@@ -823,59 +871,14 @@ struct LeaderboardView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(2)
                     }
-                        }
-                        .frame(
-                            width: max(geometry.size.width, Self.minimumPageWidth),
-                            height: max(0, geometry.size.height - 30),
-                            alignment: .topLeading
-                        )
-                    }
-                    .scrollIndicators(.visible, axes: .horizontal)
-                    .defaultScrollAnchor(.topLeading)
-
-                    HStack(spacing: 8) {
-                        Button {
-                            horizontalScrollColumn = max(0, horizontalScrollColumn - 1)
-                        } label: {
-                            Image(systemName: "chevron.left")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(horizontalScrollColumn == 0)
-                        .help("Scroll one track to the left")
-
-                        Slider(
-                            value: $horizontalScrollColumn,
-                            in: 0...Double(TrackLineupPicker.slots - 1),
-                            step: 1
-                        )
-                        .controlSize(.small)
-                        .help("Scroll across the five track columns")
-
-                        Button {
-                            horizontalScrollColumn = min(
-                                Double(TrackLineupPicker.slots - 1),
-                                horizontalScrollColumn + 1
-                            )
-                        } label: {
-                            Image(systemName: "chevron.right")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(horizontalScrollColumn == Double(TrackLineupPicker.slots - 1))
-                        .help("Scroll one track to the right")
-
-                        Text("Track \(Int(horizontalScrollColumn) + 1) of \(TrackLineupPicker.slots)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 78, alignment: .trailing)
-                    }
-                    .padding(.horizontal, 8)
-                    .onChange(of: horizontalScrollColumn) { _, value in
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            proxy.scrollTo("leaderboard-column-\(Int(value))", anchor: .leading)
-                        }
-                    }
                 }
+                .frame(width: contentWidth, alignment: .topLeading)
+                .frame(minHeight: canvasHeight - (Self.canvasPadding * 2), alignment: .topLeading)
+                .padding(Self.canvasPadding)
+                .background(PersistentHorizontalScroller())
             }
+            .scrollIndicators(.visible)
+            .defaultScrollAnchor(.topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Leaderboard")
@@ -1155,6 +1158,7 @@ private enum CarChoice: Hashable {
 
 /// One track's leaderboard, narrow enough that several sit side by side.
 private struct TrackLeaderboardCard: View {
+    let width: CGFloat
     let title: String
     /// Shown under the title when the card's map is not otherwise obvious,
     /// which it is not for a line-up spanning several maps.
@@ -1170,11 +1174,7 @@ private struct TrackLeaderboardCard: View {
     @State private var timeDrafts: [String: String] = [:]
     @State private var isSaving = false
 
-    // Wide enough for an editable time and explicit Save action. The entire
-    // Leaderboard page scrolls horizontally when five cards exceed the window.
-    static let cardWidth: CGFloat = 218
     static let cardSpacing: CGFloat = 10
-    static let carWidth: CGFloat = 74
     static let timeWidth: CGFloat = 68
     static let saveWidth: CGFloat = 46
     private static let deleteWidth: CGFloat = 18
@@ -1201,7 +1201,7 @@ private struct TrackLeaderboardCard: View {
                 }
                 inputs
             }
-            .frame(width: Self.cardWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 2)
         } label: {
             VStack(alignment: .leading, spacing: 1) {
@@ -1219,13 +1219,13 @@ private struct TrackLeaderboardCard: View {
             }
             .help([title, subtitle].compactMap { $0 }.joined(separator: " — "))
         }
+        .frame(width: width)
     }
 
     private var header: some View {
         HStack(spacing: 4) {
-            Text("Car").frame(width: Self.carWidth, alignment: .leading)
+            Text("Car").frame(maxWidth: .infinity, alignment: .leading)
             Text("Time(s)").frame(width: Self.timeWidth, alignment: .trailing)
-            Spacer(minLength: 0)
             Spacer().frame(width: Self.deleteWidth)
         }
         .font(.caption2.weight(.semibold))
@@ -1249,7 +1249,7 @@ private struct TrackLeaderboardCard: View {
                 }
                 .labelsHidden()
                 .controlSize(.small)
-                .frame(width: 94)
+                .frame(maxWidth: .infinity)
                 BoxedTextField(
                     placeholder: "18.520",
                     text: $timeText,
@@ -1360,14 +1360,13 @@ private struct EditableLapTimeRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(entry.car)
-                .frame(width: TrackLeaderboardCard.carWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             TextField("Time", text: $timeText)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .multilineTextAlignment(.trailing)
                 .font(.system(.callout, design: .monospaced))
                 .frame(width: TrackLeaderboardCard.timeWidth)
-            Spacer(minLength: 0)
             Button {
                 Task { _ = await onDelete() }
             } label: {
@@ -1389,6 +1388,7 @@ private struct TrackLineupPicker: View {
 
     let tracks: [MapTrackSummary]
     let slotValues: [String]
+    let columnWidth: CGFloat
     let onSelect: (Int, String) -> Void
 
     private struct MapGroup: Identifiable {
@@ -1420,9 +1420,9 @@ private struct TrackLineupPicker: View {
                         }
                         .labelsHidden()
                         .controlSize(.small)
-                        .frame(width: TrackLeaderboardCard.cardWidth)
+                        .frame(maxWidth: .infinity)
                     }
-                    .id("leaderboard-column-\(slot)")
+                    .frame(width: columnWidth)
                 }
             }
 
