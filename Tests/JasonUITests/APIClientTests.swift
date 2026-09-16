@@ -354,6 +354,17 @@ struct APIClientTests {
         #expect(LeaderboardTime.seconds(from: "-3") == nil)
     }
 
+    @Test func requiresAndSanitizesCompactLeaderboardTimes() {
+        #expect(LeaderboardTime.fixedSeconds(from: "19.620") == 19.620)
+        #expect(LeaderboardTime.fixedSeconds(from: "9.620") == nil)
+        #expect(LeaderboardTime.fixedSeconds(from: "19.62") == nil)
+        #expect(LeaderboardTime.fixedSeconds(from: "119.620") == nil)
+        #expect(LeaderboardTime.fixedSeconds(from: "19,620") == nil)
+        #expect(LeaderboardTime.sanitizedFixedInput("19a.6209s") == "19.620")
+        #expect(LeaderboardTime.sanitizedFixedInput("123456") == "12")
+        #expect(LeaderboardTime.sanitizedFixedInput("19..62") == "19.62")
+    }
+
     private func client() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]

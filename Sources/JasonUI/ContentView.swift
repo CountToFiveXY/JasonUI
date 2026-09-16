@@ -688,6 +688,38 @@ enum LeaderboardTime {
         guard let seconds = Double(value), seconds > 0, seconds < 3_600 else { return nil }
         return seconds
     }
+
+    /// The editable leaderboard cells deliberately accept one display format
+    /// only, so every value occupies the same compact amount of space.
+    static func fixedSeconds(from text: String) -> Double? {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              parts[0].count == 2,
+              parts[1].count == 3,
+              parts.allSatisfy({ $0.allSatisfy(\.isNumber) }),
+              let seconds = Double(value),
+              seconds > 0 else { return nil }
+        return seconds
+    }
+
+    /// Keep partial values typeable while rejecting characters that can never
+    /// form `xx.xxx`. The exact-format check still controls the Save button.
+    static func sanitizedFixedInput(_ text: String) -> String {
+        var whole = ""
+        var fraction = ""
+        var sawDecimal = false
+        for character in text where character.isNumber || character == "." {
+            if character == "." {
+                if !sawDecimal { sawDecimal = true }
+            } else if sawDecimal {
+                if fraction.count < 3 { fraction.append(character) }
+            } else if whole.count < 2 {
+                whole.append(character)
+            }
+        }
+        return sawDecimal ? "\(whole).\(fraction)" : whole
+    }
 }
 
 struct LeaderboardView: View {
@@ -1092,7 +1124,7 @@ private struct TrackLeaderboardCard: View {
 
     // Wide enough for an editable time and explicit Save action. The entire
     // Leaderboard page scrolls horizontally when five cards exceed the window.
-    static let cardWidth: CGFloat = 228
+    static let cardWidth: CGFloat = 218
     static let cardSpacing: CGFloat = 10
     static let carWidth: CGFloat = 74
     static let timeWidth: CGFloat = 68
@@ -1175,7 +1207,12 @@ private struct TrackLeaderboardCard: View {
                 BoxedTextField(placeholder: "New car", text: $car)
             }
             HStack(spacing: 6) {
-                BoxedTextField(placeholder: "18.520", text: $timeText, alignment: .trailing)
+                BoxedTextField(
+                    placeholder: "18.520",
+                    text: $timeText,
+                    width: Self.timeWidth,
+                    alignment: .trailing
+                )
                 Button(isSaving ? "…" : "Save") {
                     Task { await save() }
                 }
@@ -1185,6 +1222,10 @@ private struct TrackLeaderboardCard: View {
             }
         }
         .padding(.top, 7)
+        .onChange(of: timeText) { _, value in
+            let sanitized = LeaderboardTime.sanitizedFixedInput(value)
+            if sanitized != value { timeText = sanitized }
+        }
     }
 
     /// The car the input row will save: a pick from the list, or a typed name.
@@ -1197,11 +1238,11 @@ private struct TrackLeaderboardCard: View {
     }
 
     private var canSave: Bool {
-        !chosenCar.isEmpty && LeaderboardTime.seconds(from: timeText) != nil
+        !chosenCar.isEmpty && LeaderboardTime.fixedSeconds(from: timeText) != nil
     }
 
     private func save() async {
-        guard let seconds = LeaderboardTime.seconds(from: timeText), !chosenCar.isEmpty else {
+        guard let seconds = LeaderboardTime.fixedSeconds(from: timeText), !chosenCar.isEmpty else {
             return
         }
         isSaving = true
@@ -1269,9 +1310,13 @@ private struct EditableLapTimeRow: View {
         .onChange(of: entry.seconds) { _, _ in
             timeText = entry.displayTime
         }
+        .onChange(of: timeText) { _, value in
+            let sanitized = LeaderboardTime.sanitizedFixedInput(value)
+            if sanitized != value { timeText = sanitized }
+        }
     }
 
-    private var parsedSeconds: Double? { LeaderboardTime.seconds(from: timeText) }
+    private var parsedSeconds: Double? { LeaderboardTime.fixedSeconds(from: timeText) }
 
     private var canSave: Bool {
         guard let parsedSeconds else { return false }
