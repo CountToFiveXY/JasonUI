@@ -741,11 +741,14 @@ struct LeaderboardView: View {
     @State private var isLoading = false
     @State private var isAddingMap = false
     @State private var error: String?
+    @State private var horizontalScrollColumn = 0.0
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView(.horizontal) {
-                VStack(alignment: .leading, spacing: 14) {
+            ScrollViewReader { proxy in
+                VStack(spacing: 6) {
+                    ScrollView(.horizontal) {
+                        VStack(alignment: .leading, spacing: 14) {
                     GroupBox("Selected Gauntlet Tracks") {
                         VStack(alignment: .leading, spacing: 10) {
                             TrackLineupPicker(
@@ -820,15 +823,59 @@ struct LeaderboardView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(2)
                     }
+                        }
+                        .frame(
+                            width: max(geometry.size.width, Self.minimumPageWidth),
+                            height: max(0, geometry.size.height - 30),
+                            alignment: .topLeading
+                        )
+                    }
+                    .scrollIndicators(.visible, axes: .horizontal)
+                    .defaultScrollAnchor(.topLeading)
+
+                    HStack(spacing: 8) {
+                        Button {
+                            horizontalScrollColumn = max(0, horizontalScrollColumn - 1)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(horizontalScrollColumn == 0)
+                        .help("Scroll one track to the left")
+
+                        Slider(
+                            value: $horizontalScrollColumn,
+                            in: 0...Double(TrackLineupPicker.slots - 1),
+                            step: 1
+                        )
+                        .controlSize(.small)
+                        .help("Scroll across the five track columns")
+
+                        Button {
+                            horizontalScrollColumn = min(
+                                Double(TrackLineupPicker.slots - 1),
+                                horizontalScrollColumn + 1
+                            )
+                        } label: {
+                            Image(systemName: "chevron.right")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(horizontalScrollColumn == Double(TrackLineupPicker.slots - 1))
+                        .help("Scroll one track to the right")
+
+                        Text("Track \(Int(horizontalScrollColumn) + 1) of \(TrackLineupPicker.slots)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 78, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 8)
+                    .onChange(of: horizontalScrollColumn) { _, value in
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo("leaderboard-column-\(Int(value))", anchor: .leading)
+                        }
+                    }
                 }
-                .frame(
-                    width: max(geometry.size.width, Self.minimumPageWidth),
-                    height: geometry.size.height,
-                    alignment: .topLeading
-                )
             }
-            .scrollIndicators(.visible, axes: .horizontal)
-            .defaultScrollAnchor(.topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Leaderboard")
@@ -1375,6 +1422,7 @@ private struct TrackLineupPicker: View {
                         .controlSize(.small)
                         .frame(width: TrackLeaderboardCard.cardWidth)
                     }
+                    .id("leaderboard-column-\(slot)")
                 }
             }
 
