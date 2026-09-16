@@ -1120,6 +1120,7 @@ private struct TrackLeaderboardCard: View {
     @State private var carChoice = CarChoice.unselected
     @State private var car = ""
     @State private var timeText = ""
+    @State private var timeDrafts: [String: String] = [:]
     @State private var isSaving = false
 
     // Wide enough for an editable time and explicit Save action. The entire
@@ -1145,8 +1146,8 @@ private struct TrackLeaderboardCard: View {
                     ForEach(times) { entry in
                         EditableLapTimeRow(
                             entry: entry,
-                            onSave: { seconds in await onRecord(entry.car, seconds) },
-                            onDelete: { await onDelete(entry.car) }
+                            timeText: timeBinding(for: entry),
+                            onDelete: { await delete(entry.car) }
                         )
                         Divider()
                     }
@@ -1177,7 +1178,7 @@ private struct TrackLeaderboardCard: View {
         HStack(spacing: 4) {
             Text("Car").frame(width: Self.carWidth, alignment: .leading)
             Text("Time(s)").frame(width: Self.timeWidth, alignment: .trailing)
-            Text("Save").frame(width: Self.saveWidth, alignment: .center)
+            Spacer(minLength: 0)
             Spacer().frame(width: Self.deleteWidth)
         }
         .font(.caption2.weight(.semibold))
@@ -1185,28 +1186,23 @@ private struct TrackLeaderboardCard: View {
         .padding(.bottom, 4)
     }
 
-    /// Stacked rather than in one line: the card is too narrow for a picker,
-    /// two fields and a button side by side.
     private var inputs: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Picker("", selection: $carChoice) {
-                Text("Select car").tag(CarChoice.unselected)
-                if !cars.isEmpty {
-                    Divider()
-                    ForEach(cars) { car in
-                        Text(car.name).tag(CarChoice.existing(car.name))
+            HStack(spacing: 5) {
+                Picker("", selection: $carChoice) {
+                    Text("Select car").tag(CarChoice.unselected)
+                    if !cars.isEmpty {
+                        Divider()
+                        ForEach(cars) { car in
+                            Text(car.name).tag(CarChoice.existing(car.name))
+                        }
                     }
+                    Divider()
+                    Text("Other…").tag(CarChoice.other)
                 }
-                Divider()
-                Text("Other…").tag(CarChoice.other)
-            }
-            .labelsHidden()
-            .controlSize(.small)
-
-            if carChoice == .other {
-                BoxedTextField(placeholder: "New car", text: $car)
-            }
-            HStack(spacing: 6) {
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 94)
                 BoxedTextField(
                     placeholder: "18.520",
                     text: $timeText,
@@ -1218,13 +1214,36 @@ private struct TrackLeaderboardCard: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .frame(width: Self.saveWidth)
                 .disabled(!canSave || isSaving)
+            }
+            if carChoice == .other {
+                BoxedTextField(placeholder: "New car", text: $car)
             }
         }
         .padding(.top, 7)
+        .onChange(of: carChoice) { _, choice in
+            switch choice {
+            case .unselected:
+                timeText = ""
+            case let .existing(name):
+                timeText = timeDrafts[name]
+                    ?? times.first(where: { $0.car == name })?.displayTime
+                    ?? ""
+            case .other:
+                timeText = ""
+            }
+        }
         .onChange(of: timeText) { _, value in
             let sanitized = LeaderboardTime.sanitizedFixedInput(value)
-            if sanitized != value { timeText = sanitized }
+            if sanitized != value {
+                timeText = sanitized
+                return
+            }
+            if case let .existing(name) = carChoice,
+               times.contains(where: { $0.car == name }) {
+                timeDrafts[name] = sanitized
+            }
         }
     }
 
@@ -1248,10 +1267,35 @@ private struct TrackLeaderboardCard: View {
         isSaving = true
         defer { isSaving = false }
         if await onRecord(chosenCar, seconds) {
+            timeDrafts[chosenCar] = nil
             carChoice = .unselected
             car = ""
             timeText = ""
         }
+    }
+
+    private func timeBinding(for entry: LapTimeEntry) -> Binding<String> {
+        Binding(
+            get: { timeDrafts[entry.car] ?? entry.displayTime },
+            set: { value in
+                let sanitized = LeaderboardTime.sanitizedFixedInput(value)
+                timeDrafts[entry.car] = sanitized
+                carChoice = .existing(entry.car)
+                timeText = sanitized
+            }
+        )
+    }
+
+    private func delete(_ car: String) async -> Bool {
+        let deleted = await onDelete(car)
+        if deleted {
+            timeDrafts[car] = nil
+            if chosenCar == car {
+                carChoice = .unselected
+                timeText = ""
+            }
+        }
+        return deleted
     }
 }
 
@@ -1259,22 +1303,8 @@ private struct TrackLeaderboardCard: View {
 /// corrected in place. Saving uses the same idempotent PUT as adding a time.
 private struct EditableLapTimeRow: View {
     let entry: LapTimeEntry
-    let onSave: (Double) async -> Bool
+    @Binding var timeText: String
     let onDelete: () async -> Bool
-
-    @State private var timeText: String
-    @State private var isSaving = false
-
-    init(
-        entry: LapTimeEntry,
-        onSave: @escaping (Double) async -> Bool,
-        onDelete: @escaping () async -> Bool
-    ) {
-        self.entry = entry
-        self.onSave = onSave
-        self.onDelete = onDelete
-        _timeText = State(initialValue: entry.displayTime)
-    }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -1290,12 +1320,7 @@ private struct EditableLapTimeRow: View {
                 .multilineTextAlignment(.trailing)
                 .font(.system(.callout, design: .monospaced))
                 .frame(width: TrackLeaderboardCard.timeWidth)
-            Button(isSaving ? "…" : "Save") {
-                Task { await save() }
-            }
-            .controlSize(.mini)
-            .frame(width: TrackLeaderboardCard.saveWidth)
-            .disabled(!canSave || isSaving)
+            Spacer(minLength: 0)
             Button {
                 Task { _ = await onDelete() }
             } label: {
@@ -1307,29 +1332,6 @@ private struct EditableLapTimeRow: View {
         }
         .font(.callout)
         .padding(.vertical, 3)
-        .onChange(of: entry.seconds) { _, _ in
-            timeText = entry.displayTime
-        }
-        .onChange(of: timeText) { _, value in
-            let sanitized = LeaderboardTime.sanitizedFixedInput(value)
-            if sanitized != value { timeText = sanitized }
-        }
-    }
-
-    private var parsedSeconds: Double? { LeaderboardTime.fixedSeconds(from: timeText) }
-
-    private var canSave: Bool {
-        guard let parsedSeconds else { return false }
-        return abs(parsedSeconds - entry.seconds) >= 0.000_5
-    }
-
-    private func save() async {
-        guard let parsedSeconds else { return }
-        isSaving = true
-        defer { isSaving = false }
-        if await onSave(parsedSeconds) {
-            timeText = String(format: "%.3f", parsedSeconds)
-        }
     }
 }
 
