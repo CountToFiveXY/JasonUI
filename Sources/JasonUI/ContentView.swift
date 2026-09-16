@@ -636,7 +636,10 @@ struct WorkflowsView: View {
                     LabeledContent("User ID", value: orderResponse.userID)
                     LabeledContent("Firestore") {
                         if let url = model.client?.firestoreOrderURL(orderID: orderResponse.id) {
-                            Link("Open document", destination: url)
+                            Button("Open document") {
+                                openFirestoreDocument(url)
+                            }
+                            .buttonStyle(.link)
                                 .help("Open this order in the Firebase console")
                         }
                     }
@@ -707,6 +710,16 @@ struct WorkflowsView: View {
             error = nil
         }
         catch { self.error = error.localizedDescription }
+    }
+
+    private func openFirestoreDocument(_ url: URL) {
+        guard NSWorkspace.shared.open(url) else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.absoluteString, forType: .string)
+            error = "Could not open the Firebase console in your browser. The Firestore link was copied to the clipboard: \(url.absoluteString)"
+            return
+        }
+        error = nil
     }
 }
 
