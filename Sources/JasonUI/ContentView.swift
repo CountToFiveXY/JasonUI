@@ -1804,7 +1804,8 @@ struct QuickLinkView: View {
         .navigationTitle("Quick Links")
         .sheet(isPresented: $isShowingBrowser) {
             QuickLinkBrowserView(
-                url: URL(string: "https://r.galaxylens.de/")!,
+                url: URL(string: "https://al.galaxylens.de/")!,
+                pageLoadJavaScript: galaxyLensSpecialEventsScript,
                 isPresented: $isShowingBrowser
             )
         }
@@ -1820,8 +1821,40 @@ struct QuickLinkView: View {
     }
 }
 
+private let galaxyLensSpecialEventsScript = """
+(() => {
+    if (window.location.origin !== "https://al.galaxylens.de" || window.location.pathname !== "/") {
+        return;
+    }
+
+    const selectSpecialEvents = () => {
+        const categorySelect = Array.from(document.querySelectorAll("select")).find(
+            select => select.querySelector('option[value="SPECIAL_EVENT"]')
+        );
+        if (!categorySelect) return false;
+
+        const valueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLSelectElement.prototype,
+            "value"
+        )?.set;
+        valueSetter?.call(categorySelect, "SPECIAL_EVENT");
+        categorySelect.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+    };
+
+    if (selectSpecialEvents()) return;
+
+    const observer = new MutationObserver(() => {
+        if (selectSpecialEvents()) observer.disconnect();
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.setTimeout(() => observer.disconnect(), 10000);
+})();
+"""
+
 private struct QuickLinkBrowserView: View {
     let url: URL
+    let pageLoadJavaScript: String?
     @Binding var isPresented: Bool
     @State private var webView = WKWebView()
     @State private var canGoBack = false
@@ -1868,7 +1901,8 @@ private struct QuickLinkBrowserView: View {
                 canGoBack: $canGoBack,
                 canGoForward: $canGoForward,
                 currentURL: $currentURL,
-                isLoading: $isLoading
+                isLoading: $isLoading,
+                pageLoadJavaScript: pageLoadJavaScript
             )
         }
         .frame(minWidth: 900, minHeight: 650)
@@ -1886,13 +1920,15 @@ private struct EmbeddedWebView: NSViewRepresentable {
     @Binding var canGoForward: Bool
     @Binding var currentURL: String
     @Binding var isLoading: Bool
+    let pageLoadJavaScript: String?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             canGoBack: $canGoBack,
             canGoForward: $canGoForward,
             currentURL: $currentURL,
-            isLoading: $isLoading
+            isLoading: $isLoading,
+            pageLoadJavaScript: pageLoadJavaScript
         )
     }
 
@@ -1910,17 +1946,20 @@ private struct EmbeddedWebView: NSViewRepresentable {
         private var canGoForward: Binding<Bool>
         private var currentURL: Binding<String>
         private var isLoading: Binding<Bool>
+        private let pageLoadJavaScript: String?
 
         init(
             canGoBack: Binding<Bool>,
             canGoForward: Binding<Bool>,
             currentURL: Binding<String>,
-            isLoading: Binding<Bool>
+            isLoading: Binding<Bool>,
+            pageLoadJavaScript: String?
         ) {
             self.canGoBack = canGoBack
             self.canGoForward = canGoForward
             self.currentURL = currentURL
             self.isLoading = isLoading
+            self.pageLoadJavaScript = pageLoadJavaScript
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
@@ -1933,6 +1972,9 @@ private struct EmbeddedWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
             update(from: webView)
+            if let pageLoadJavaScript {
+                webView.evaluateJavaScript(pageLoadJavaScript)
+            }
         }
 
         func webView(
