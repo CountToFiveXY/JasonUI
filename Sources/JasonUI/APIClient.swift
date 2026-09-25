@@ -42,6 +42,50 @@ struct ShortenResponse: Decodable, Equatable {
     let shortUrl: String
 }
 
+struct GalaxyLeaderboardTier: Decodable, Equatable, Identifiable {
+    let label: String
+    let rank: Int
+    let time: String?
+
+    var id: String { label }
+    var displayLabel: String {
+        label.hasPrefix("rank:") ? "Top \(label.dropFirst(5))" : label
+    }
+}
+
+struct GalaxyLeaderboardContext: Decodable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    let endDate: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case endDate = "end_date"
+    }
+}
+
+struct GalaxyLeaderboard: Decodable, Equatable, Identifiable {
+    let id: Int
+    let name: String
+    let totalParticipants: Int
+    let status: String
+    let updatedAt: String
+    let tiers: [GalaxyLeaderboardTier]
+    let event: GalaxyLeaderboardContext?
+    let season: GalaxyLeaderboardContext?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, tiers, event, season
+        case totalParticipants = "total_participants"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct GalaxyLeaderboardListResponse: Decodable, Equatable {
+    let source: String
+    let leaderboards: [GalaxyLeaderboard]
+}
+
 struct RecognizedLine: Decodable, Equatable, Identifiable {
     let text: String
     let confidence: Double
@@ -407,6 +451,10 @@ struct APIClient: Sendable {
             method: "POST",
             body: Body(total: total, type: type, car: car)
         )
+    }
+
+    func galaxyLeaderboards() async throws -> GalaxyLeaderboardListResponse {
+        try await request(path: "v1/ranking/leaderboards", method: "GET")
     }
 
     func shortURL(for path: String) -> URL? {

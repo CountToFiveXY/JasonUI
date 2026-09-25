@@ -206,7 +206,7 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .dashboard: "server.rack"
         case .ledger: "list.bullet.rectangle.portrait"
         case .shortener: "link"
-        case .ranking: "chart.bar.doc.horizontal"
+        case .ranking: "trophy"
         case .leaderboard: "stopwatch"
         case .workflows: "point.3.connected.trianglepath.dotted"
         case .quickLink: "link.circle"
@@ -385,22 +385,292 @@ private struct BoxedNativeField: View {
 }
 
 struct RankingView: View {
-    private static let slots = 3
+    private static let columnCount = 4
+    private static let rowCount = 2
+    private static let cardWidth: CGFloat = 330
+    private static let cardHeight: CGFloat = 590
+    private static let cardSpacing: CGFloat = 14
+
+    @Environment(AppModel.self) private var model
+    @State private var leaderboards: [GalaxyLeaderboard] = []
+    @State private var searchText = ""
+    @State private var isLoading = false
+    @State private var error: String?
+
+    private var filteredLeaderboards: [GalaxyLeaderboard] {
+        leaderboards.filter { leaderboard in
+            searchText.isEmpty
+                || leaderboard.name.localizedCaseInsensitiveContains(searchText)
+                || leaderboard.event?.name.localizedCaseInsensitiveContains(searchText) == true
+                || leaderboard.season?.name.localizedCaseInsensitiveContains(searchText) == true
+        }
+    }
+
+    private var gridColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.fixed(Self.cardWidth), spacing: Self.cardSpacing),
+            count: Self.columnCount
+        )
+    }
+
+    private var canvasWidth: CGFloat {
+        Self.cardWidth * CGFloat(Self.columnCount)
+            + Self.cardSpacing * CGFloat(Self.columnCount - 1)
+    }
+
+    private var canvasHeight: CGFloat {
+        Self.cardHeight * CGFloat(Self.rowCount)
+            + Self.cardSpacing * CGFloat(Self.rowCount - 1)
+    }
 
     var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            HStack(alignment: .top, spacing: 18) {
-                ForEach(1...Self.slots, id: \.self) { slot in
-                    RankingCardSection(slot: slot)
+        VStack(spacing: 16) {
+            HStack(spacing: 8) {
+                Label("Active Events (\(leaderboards.count))", systemImage: "bolt.fill")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                Spacer()
+                TextField("Search leaderboards", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 260)
+                Button {
+                    Task { await load() }
+                } label: {
+                    if isLoading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .disabled(isLoading)
+                .help("Refresh from Galaxy Lens")
+            }
+
+            if let error {
+                CopyableErrorText(message: error)
+            }
+
+            if isLoading && leaderboards.isEmpty {
+                Spacer()
+                ProgressView("Loading leaderboards…")
+                Spacer()
+            } else if filteredLeaderboards.isEmpty {
+                ContentUnavailableView(
+                    "No Leaderboards",
+                    systemImage: "trophy",
+                    description: Text(searchText.isEmpty ? "No active events are available." : "Try another search.")
+                )
+            } else {
+                ScrollView([.horizontal, .vertical]) {
+                    LazyVGrid(
+                        columns: gridColumns,
+                        alignment: .leading,
+                        spacing: Self.cardSpacing
+                    ) {
+                        ForEach(filteredLeaderboards) { leaderboard in
+                            GalaxyLeaderboardCard(leaderboard: leaderboard)
+                                .frame(
+                                    width: Self.cardWidth,
+                                    height: Self.cardHeight,
+                                    alignment: .top
+                                )
+                        }
+                    }
+                    .frame(
+                        width: canvasWidth,
+                        height: canvasHeight,
+                        alignment: .topLeading
+                    )
+                    .padding(4)
+                }
+                .defaultScrollAnchor(.topLeading)
+                .background(PersistentHorizontalScroller().frame(width: 0, height: 0))
+            }
+        }
+        .navigationTitle("Ranking Card")
+        // ContentView recreates this page when the sidebar selection changes,
+        // so returning to Rankings always performs a fresh backend request.
+        .task { await load() }
+    }
+
+    @MainActor
+    private func load() async {
+        guard let client = model.client else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let response = try await client.galaxyLeaderboards()
+            leaderboards = response.leaderboards
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+private struct GalaxyLeaderboardCard: View {
+    let leaderboard: GalaxyLeaderboard
+
+    private static let tierColors: [Color] = [
+        .orange, .purple, .blue, .mint, .cyan, .gray, .pink
+    ]
+
+    var body: some View {
+        VStack(spacing: 13) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(spacing: -3) {
+                    Text("UNITE")
+                        .font(.system(size: 6, weight: .black, design: .rounded))
+                    Text("GALAXY")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                }
+                .foregroundStyle(.white)
+                .padding(7)
+                .background(Color.purple.opacity(0.8), in: ShieldShape())
+                Text(leaderboard.name)
+                    .font(.title2.bold())
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .lineLimit(2)
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: "clock")
+                Text(formattedUpdate)
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            VStack(spacing: 7) {
+                ForEach(Array(leaderboard.tiers.enumerated()), id: \.element.id) { index, tier in
+                    HStack {
+                        Circle()
+                            .fill(Self.tierColors[index % Self.tierColors.count])
+                            .frame(width: 9, height: 9)
+                        Text(tier.displayLabel)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Self.tierColors[index % Self.tierColors.count])
+                        Spacer()
+                        Text(tierResult(tier))
+                            .fontWeight(.bold)
+                            .foregroundStyle(.white)
+                        Image(systemName: "person.2")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        Self.tierColors[index % Self.tierColors.count].opacity(0.10),
+                        in: RoundedRectangle(cornerRadius: 8)
+                    )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(.top, 2)
+
+            if let remainingText {
+                Label(remainingText, systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.16), in: Capsule())
+                    .overlay(Capsule().stroke(Color.green.opacity(0.35)))
+            } else {
+                Label(
+                    leaderboard.status == "active" ? "进行中" : "已结束",
+                    systemImage: leaderboard.status == "active" ? "bolt.fill" : "checkmark.circle.fill"
+                )
+                .font(.subheadline.bold())
+                .foregroundStyle(leaderboard.status == "active" ? Color.green : Color.secondary)
+            }
+
+            if let event = leaderboard.event {
+                contextRow(event.name, systemImage: "trophy", color: .blue)
+            }
+            if let season = leaderboard.season {
+                contextRow(season.name, systemImage: "medal", color: .purple)
+            }
         }
-        // A two-axis scroll view centres content smaller than its viewport, so
-        // the anchor is what actually pins the cards to the top-left.
-        .defaultScrollAnchor(.topLeading)
-        .navigationTitle("Ranking Card")
+        .padding(16)
+        .background(
+            LinearGradient(
+                colors: [Color(red: 0.07, green: 0.10, blue: 0.17), Color(red: 0.10, green: 0.14, blue: 0.23)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 16)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.cyan.opacity(0.55), lineWidth: 1)
+        )
+    }
+
+    private func tierResult(_ tier: GalaxyLeaderboardTier) -> String {
+        guard let time = tier.time, !time.isEmpty else {
+            return tier.rank.formatted()
+        }
+        return "\(tier.rank.formatted()) (\(time))"
+    }
+
+    private var formattedUpdate: String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: leaderboard.updatedAt) else {
+            return leaderboard.updatedAt
+        }
+        return date.formatted(
+            Date.FormatStyle()
+                .year().month(.twoDigits).day(.twoDigits)
+                .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
+        )
+    }
+
+    private var remainingText: String? {
+        guard leaderboard.status == "active",
+              let endDateText = leaderboard.event?.endDate,
+              let endDate = Self.dayFormatter.date(from: endDateText),
+              let deadline = Calendar.current.date(byAdding: .day, value: 1, to: endDate)
+        else { return nil }
+        let seconds = deadline.timeIntervalSinceNow
+        guard seconds > 0 else { return nil }
+        let hours = Int(seconds / 3_600)
+        return "剩\(hours / 24)天\(hours % 24)时"
+    }
+
+    private func contextRow(_ title: String, systemImage: String, color: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 9)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(color.opacity(0.4)))
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+}
+
+private struct ShieldShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX * 0.88, y: rect.maxY * 0.72))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.maxY * 0.72))
+        path.closeSubpath()
+        return path
     }
 }
 
