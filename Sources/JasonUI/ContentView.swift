@@ -385,10 +385,6 @@ private struct BoxedNativeField: View {
 }
 
 struct RankingView: View {
-    private static let columnCount = 4
-    private static let rowCount = 2
-    private static let cardWidth: CGFloat = 330
-    private static let cardHeight: CGFloat = 590
     private static let cardSpacing: CGFloat = 14
 
     @Environment(AppModel.self) private var model
@@ -396,35 +392,43 @@ struct RankingView: View {
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var error: String?
+    @State private var didCopyTierOneSnapshot = false
+    @State private var snapshotError: String?
 
     private var filteredLeaderboards: [GalaxyLeaderboard] {
-        leaderboards.filter { leaderboard in
-            searchText.isEmpty
-                || leaderboard.name.localizedCaseInsensitiveContains(searchText)
-                || leaderboard.event?.name.localizedCaseInsensitiveContains(searchText) == true
-                || leaderboard.season?.name.localizedCaseInsensitiveContains(searchText) == true
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return leaderboards.filter { leaderboard in
+            query.isEmpty
+                || leaderboard.name.localizedCaseInsensitiveContains(query)
+                || leaderboard.event?.name.localizedCaseInsensitiveContains(query) == true
+                || leaderboard.season?.name.localizedCaseInsensitiveContains(query) == true
         }
     }
 
     private var gridColumns: [GridItem] {
         Array(
-            repeating: GridItem(.fixed(Self.cardWidth), spacing: Self.cardSpacing),
-            count: Self.columnCount
+            repeating: GridItem(
+                .flexible(minimum: 250, maximum: 380),
+                spacing: Self.cardSpacing
+            ),
+            count: 3
         )
     }
 
-    private var canvasWidth: CGFloat {
-        Self.cardWidth * CGFloat(Self.columnCount)
-            + Self.cardSpacing * CGFloat(Self.columnCount - 1)
+    private var tier1Leaderboards: [GalaxyLeaderboard] {
+        filteredLeaderboards.filter(\.isTierOne)
     }
 
-    private var canvasHeight: CGFloat {
-        Self.cardHeight * CGFloat(Self.rowCount)
-            + Self.cardSpacing * CGFloat(Self.rowCount - 1)
+    private var allTier1Leaderboards: [GalaxyLeaderboard] {
+        leaderboards.filter(\.isTierOne)
+    }
+
+    private var tier2Leaderboards: [GalaxyLeaderboard] {
+        filteredLeaderboards.filter { !$0.isTierOne }
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             HStack(spacing: 8) {
                 Label("Active Events (\(leaderboards.count))", systemImage: "bolt.fill")
                     .font(.headline)
@@ -433,6 +437,17 @@ struct RankingView: View {
                 TextField("Search leaderboards", text: $searchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 260)
+                Button {
+                    copyAllTierOneLeaderboards()
+                } label: {
+                    Image(systemName: "camera")
+                }
+                .disabled(allTier1Leaderboards.isEmpty)
+                .help(
+                    didCopyTierOneSnapshot
+                        ? "All Tier 1 leaderboards copied"
+                        : "Copy all Tier 1 leaderboards as one image"
+                )
                 Button {
                     Task { await load() }
                 } label: {
@@ -450,47 +465,95 @@ struct RankingView: View {
                 CopyableErrorText(message: error)
             }
 
-            if isLoading && leaderboards.isEmpty {
-                Spacer()
-                ProgressView("Loading leaderboards…")
-                Spacer()
-            } else if filteredLeaderboards.isEmpty {
-                ContentUnavailableView(
-                    "No Leaderboards",
-                    systemImage: "trophy",
-                    description: Text(searchText.isEmpty ? "No active events are available." : "Try another search.")
-                )
-            } else {
-                ScrollView([.horizontal, .vertical]) {
-                    LazyVGrid(
-                        columns: gridColumns,
-                        alignment: .leading,
-                        spacing: Self.cardSpacing
-                    ) {
-                        ForEach(filteredLeaderboards) { leaderboard in
-                            GalaxyLeaderboardCard(leaderboard: leaderboard)
-                                .frame(
-                                    width: Self.cardWidth,
-                                    height: Self.cardHeight,
-                                    alignment: .top
-                                )
-                        }
-                    }
-                    .frame(
-                        width: canvasWidth,
-                        height: canvasHeight,
-                        alignment: .topLeading
-                    )
-                    .padding(4)
-                }
-                .defaultScrollAnchor(.topLeading)
-                .background(PersistentHorizontalScroller().frame(width: 0, height: 0))
+            if let snapshotError {
+                CopyableErrorText(message: snapshotError)
             }
+
+            Group {
+                if isLoading && leaderboards.isEmpty {
+                    ProgressView("Loading leaderboards…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if filteredLeaderboards.isEmpty {
+                    ContentUnavailableView(
+                        "No Leaderboards",
+                        systemImage: "trophy",
+                        description: Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No active events are available." : "Try another search.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            leaderboardSection(
+                                title: "Tier 1",
+                                subtitle: "Special Events, Car Hunts, and Spotlights",
+                                leaderboards: tier1Leaderboards,
+                                color: .cyan
+                            )
+
+                            if !tier1Leaderboards.isEmpty && !tier2Leaderboards.isEmpty {
+                                Divider()
+                                    .overlay(Color.secondary.opacity(0.35))
+                                    .padding(.vertical, 2)
+                            }
+
+                            leaderboardSection(
+                                title: "Tier 2",
+                                subtitle: "Other and unclassified active events",
+                                leaderboards: tier2Leaderboards,
+                                color: .purple
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .padding(.horizontal, 4)
+                        .padding(.bottom, 8)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("Ranking Card")
         // ContentView recreates this page when the sidebar selection changes,
         // so returning to Rankings always performs a fresh backend request.
         .task { await load() }
+    }
+
+    @ViewBuilder
+    private func leaderboardSection(
+        title: String,
+        subtitle: String,
+        leaderboards: [GalaxyLeaderboard],
+        color: Color
+    ) -> some View {
+        if !leaderboards.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(title)
+                        .font(.title2.bold())
+                        .foregroundStyle(color)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text("\(leaderboards.count)")
+                        .font(.caption.bold())
+                        .foregroundStyle(color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.14), in: Capsule())
+                }
+
+                LazyVGrid(
+                    columns: gridColumns,
+                    alignment: .leading,
+                    spacing: Self.cardSpacing
+                ) {
+                    ForEach(leaderboards) { leaderboard in
+                        GalaxyLeaderboardCard(leaderboard: leaderboard)
+                            .frame(maxWidth: .infinity, alignment: .top)
+                    }
+                }
+            }
+        }
     }
 
     @MainActor
@@ -505,9 +568,92 @@ struct RankingView: View {
             let response = try await client.galaxyLeaderboards()
             leaderboards = response.leaderboards
             error = nil
+            didCopyTierOneSnapshot = false
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func copyAllTierOneLeaderboards() {
+        guard !allTier1Leaderboards.isEmpty else { return }
+
+        let renderer = ImageRenderer(
+            content: TierOneLeaderboardSnapshot(leaderboards: allTier1Leaderboards)
+        )
+        renderer.scale = 2
+
+        guard let image = renderer.nsImage else {
+            snapshotError = "JasonApp could not render the Tier 1 leaderboard image."
+            didCopyTierOneSnapshot = false
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        if NSPasteboard.general.writeObjects([image]) {
+            snapshotError = nil
+            didCopyTierOneSnapshot = true
+        } else {
+            snapshotError = "JasonApp could not place the Tier 1 leaderboard image on the clipboard."
+            didCopyTierOneSnapshot = false
+        }
+    }
+}
+
+private struct TierOneLeaderboardSnapshot: View {
+    let leaderboards: [GalaxyLeaderboard]
+
+    private let cardWidth: CGFloat = 580
+    private let spacing: CGFloat = 24
+
+    private var columnCount: Int {
+        min(max(leaderboards.count, 1), 3)
+    }
+
+    private var rows: [[GalaxyLeaderboard]] {
+        stride(from: 0, to: leaderboards.count, by: columnCount).map { start in
+            Array(leaderboards[start..<min(start + columnCount, leaderboards.count)])
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text("Tier 1")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(.cyan)
+                Text("Special Events, Car Hunts, and Spotlights")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
+                Text("\(leaderboards.count)")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.cyan)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Color.cyan.opacity(0.12), in: Capsule())
+            }
+
+            Grid(alignment: .topLeading, horizontalSpacing: spacing, verticalSpacing: spacing) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    GridRow(alignment: .top) {
+                        ForEach(row) { leaderboard in
+                            GalaxyLeaderboardCard(leaderboard: leaderboard)
+                                .frame(width: cardWidth, alignment: .top)
+                        }
+
+                        if row.count < columnCount {
+                            ForEach(row.count..<columnCount, id: \.self) { _ in
+                                Color.clear.frame(width: cardWidth, height: 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+        .fixedSize()
     }
 }
 
@@ -537,13 +683,19 @@ private struct GalaxyLeaderboardCard: View {
                     .lineLimit(2)
             }
 
-            HStack(spacing: 6) {
-                Image(systemName: "clock")
-                Text(formattedUpdate)
+            if let remainingText {
+                Label(remainingText, systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.16), in: Capsule())
+                    .overlay(Capsule().stroke(Color.green.opacity(0.35)))
+            } else {
+                Label("进行中", systemImage: "bolt.fill")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.green)
             }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .center)
 
             VStack(spacing: 7) {
                 ForEach(Array(leaderboard.tiers.enumerated()), id: \.element.id) { index, tier in
@@ -558,8 +710,6 @@ private struct GalaxyLeaderboardCard: View {
                         Text(tierResult(tier))
                             .fontWeight(.bold)
                             .foregroundStyle(.white)
-                        Image(systemName: "person.2")
-                            .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -570,29 +720,6 @@ private struct GalaxyLeaderboardCard: View {
                 }
             }
 
-            if let remainingText {
-                Label(remainingText, systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.green)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.green.opacity(0.16), in: Capsule())
-                    .overlay(Capsule().stroke(Color.green.opacity(0.35)))
-            } else {
-                Label(
-                    leaderboard.status == "active" ? "进行中" : "已结束",
-                    systemImage: leaderboard.status == "active" ? "bolt.fill" : "checkmark.circle.fill"
-                )
-                .font(.subheadline.bold())
-                .foregroundStyle(leaderboard.status == "active" ? Color.green : Color.secondary)
-            }
-
-            if let event = leaderboard.event {
-                contextRow(event.name, systemImage: "trophy", color: .blue)
-            }
-            if let season = leaderboard.season {
-                contextRow(season.name, systemImage: "medal", color: .purple)
-            }
         }
         .padding(16)
         .background(
@@ -616,19 +743,6 @@ private struct GalaxyLeaderboardCard: View {
         return "\(tier.rank.formatted()) (\(time))"
     }
 
-    private var formattedUpdate: String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: leaderboard.updatedAt) else {
-            return leaderboard.updatedAt
-        }
-        return date.formatted(
-            Date.FormatStyle()
-                .year().month(.twoDigits).day(.twoDigits)
-                .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
-        )
-    }
-
     private var remainingText: String? {
         guard leaderboard.status == "active",
               let endDateText = leaderboard.event?.endDate,
@@ -639,18 +753,6 @@ private struct GalaxyLeaderboardCard: View {
         guard seconds > 0 else { return nil }
         let hours = Int(seconds / 3_600)
         return "剩\(hours / 24)天\(hours % 24)时"
-    }
-
-    private func contextRow(_ title: String, systemImage: String, color: Color) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.subheadline.weight(.semibold))
-            .lineLimit(1)
-            .foregroundStyle(color)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 9)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(color.opacity(0.4)))
     }
 
     private static let dayFormatter: DateFormatter = {

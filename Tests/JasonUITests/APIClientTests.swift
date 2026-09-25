@@ -123,7 +123,7 @@ struct APIClientTests {
             #expect(request.httpMethod == "GET")
             #expect(request.url?.path == "/v1/ranking/leaderboards")
             let data = Data(
-                #"{"source":"https://al.galaxylens.de/leaderboards","leaderboards":[{"id":249,"name":"啤酒节","total_participants":192865,"status":"active","updated_at":"2026-09-25T04:00:05Z","tiers":[{"label":"1%","rank":1928,"time":"1:01.715"},{"label":"100%","rank":192865,"time":"1:53.604"}],"event":{"id":"event-1","name":"OKTOBER FAST TLE","end_date":"2026-09-30"},"season":{"id":"season-1","name":"SUNSET SPEEDWAY","end_date":"2026-10-14"}}]}"#.utf8
+                #"{"source":"https://al.galaxylens.de/leaderboards","leaderboards":[{"id":249,"name":"啤酒节","total_participants":192865,"status":"active","updated_at":"2026-09-25T04:00:05Z","tiers":[{"label":"1%","rank":1928,"time":"1:01.715"},{"label":"100%","rank":192865,"time":"1:53.604"}],"event":{"id":"event-1","name":"OKTOBER FAST TLE","end_date":"2026-09-30","type":"LIMITED_TIME_EVENT","subtype":null},"season":{"id":"season-1","name":"SUNSET SPEEDWAY","end_date":"2026-10-14","type":null,"subtype":null}}]}"#.utf8
             )
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -139,6 +139,8 @@ struct APIClientTests {
         #expect(response.leaderboards[0].tiers[0].time == "1:01.715")
         #expect(response.leaderboards[0].totalParticipants == 192865)
         #expect(response.leaderboards[0].event?.name == "OKTOBER FAST TLE")
+        #expect(response.leaderboards[0].event?.type == "LIMITED_TIME_EVENT")
+        #expect(response.leaderboards[0].isTierOne == false)
         #expect(response.leaderboards[0].season?.name == "SUNSET SPEEDWAY")
     }
 

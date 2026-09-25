@@ -57,9 +57,11 @@ struct GalaxyLeaderboardContext: Decodable, Equatable, Identifiable {
     let id: String
     let name: String
     let endDate: String
+    let type: String?
+    let subtype: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name
+        case id, name, type, subtype
         case endDate = "end_date"
     }
 }
@@ -78,6 +80,14 @@ struct GalaxyLeaderboard: Decodable, Equatable, Identifiable {
         case id, name, status, tiers, event, season
         case totalParticipants = "total_participants"
         case updatedAt = "updated_at"
+    }
+
+    var isTierOne: Bool {
+        let eventType = event?.type?.uppercased()
+        let eventSubtype = event?.subtype?.lowercased()
+        return eventType == "SPECIAL_EVENT"
+            || eventType == "CAR_HUNT"
+            || eventSubtype == "spotlight"
     }
 }
 
