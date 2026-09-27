@@ -44,7 +44,7 @@ struct ShortenResponse: Decodable, Equatable {
 
 struct GalaxyLeaderboardTier: Decodable, Equatable, Identifiable {
     let label: String
-    let rank: Int?
+    let rank: Int
     let time: String?
 
     var id: String { label }

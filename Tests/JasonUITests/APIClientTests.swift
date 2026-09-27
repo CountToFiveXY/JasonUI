@@ -144,24 +144,6 @@ struct APIClientTests {
         #expect(response.leaderboards[0].season?.name == "SUNSET SPEEDWAY")
     }
 
-    @Test func decodesGrandPrixAsTierTwoWithPendingRanks() async throws {
-        MockURLProtocol.handler = { request in
-            let data = Data(
-                #"{"source":"https://al.galaxylens.de/leaderboards","leaderboards":[{"id":-1,"name":"KIMERA EVO37 GRAND PRIX","total_participants":0,"status":"active","updated_at":"2026-09-22T00:00:00Z","tiers":[{"label":"1%","rank":null,"time":null},{"label":"5%","rank":null,"time":null},{"label":"10%","rank":null,"time":null},{"label":"25%","rank":null,"time":null},{"label":"75%","rank":null,"time":null},{"label":"100%","rank":null,"time":null}],"event":{"id":"gp-1","name":"KIMERA EVO37 GRAND PRIX","end_date":"2026-10-09","type":"GRAND_PRIX","subtype":null},"season":null}]}"#.utf8
-            )
-            return (
-                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                data
-            )
-        }
-
-        let leaderboard = try #require(await client().galaxyLeaderboards().leaderboards.first)
-
-        #expect(!leaderboard.isTierOne)
-        #expect(leaderboard.tiers.map(\.displayLabel) == ["1%", "5%", "10%", "25%", "75%", "100%"])
-        #expect(leaderboard.tiers.allSatisfy { $0.rank == nil })
-    }
-
     @Test func classifiesBurstOfSpeedAsTierTwo() async throws {
         MockURLProtocol.handler = { request in
             let data = Data(

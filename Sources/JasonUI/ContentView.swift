@@ -408,10 +408,10 @@ struct RankingView: View {
     private var gridColumns: [GridItem] {
         Array(
             repeating: GridItem(
-                .flexible(minimum: 250, maximum: 380),
+                .flexible(minimum: 210, maximum: 360),
                 spacing: Self.cardSpacing
             ),
-            count: 3
+            count: 4
         )
     }
 
@@ -603,11 +603,12 @@ struct RankingView: View {
 private struct TierOneLeaderboardSnapshot: View {
     let leaderboards: [GalaxyLeaderboard]
 
-    private let cardWidth: CGFloat = 580
-    private let spacing: CGFloat = 24
+    // Match the compact card width and spacing used by the on-screen 4 × N grid.
+    private let cardWidth: CGFloat = 260
+    private let spacing: CGFloat = 14
 
     private var columnCount: Int {
-        min(max(leaderboards.count, 1), 3)
+        min(max(leaderboards.count, 1), 4)
     }
 
     private var rows: [[GalaxyLeaderboard]] {
@@ -620,16 +621,16 @@ private struct TierOneLeaderboardSnapshot: View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 Text("Tier 1")
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.title2.bold())
                     .foregroundStyle(.cyan)
                 Text("Special Events, Car Hunts, and Spotlights")
-                    .font(.system(size: 22))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Text("\(leaderboards.count)")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.caption.bold())
                     .foregroundStyle(.cyan)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
                     .background(Color.cyan.opacity(0.12), in: Capsule())
             }
 
@@ -650,7 +651,7 @@ private struct TierOneLeaderboardSnapshot: View {
                 }
             }
         }
-        .padding(20)
+        .padding(16)
         .background(Color.white)
         .environment(\.colorScheme, .light)
         .fixedSize()
@@ -737,11 +738,10 @@ private struct GalaxyLeaderboardCard: View {
     }
 
     private func tierResult(_ tier: GalaxyLeaderboardTier) -> String {
-        guard let rank = tier.rank else { return "—" }
         guard let time = tier.time, !time.isEmpty else {
-            return rank.formatted()
+            return tier.rank.formatted()
         }
-        return "\(rank.formatted()) (\(time))"
+        return "\(tier.rank.formatted()) (\(time))"
     }
 
     private var remainingText: String? {
