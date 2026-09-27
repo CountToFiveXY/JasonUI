@@ -47,8 +47,8 @@ struct ContentView: View {
                     case .dashboard: DashboardView()
                     case .ledger: LedgerView()
                     case .shortener: URLShortenerView()
-                    case .ranking: RankingView()
                     case .leaderboard: LeaderboardView()
+                    case .gauntlet: GauntletView()
                     case .workflows: WorkflowsView()
                     case .quickLink: QuickLinkView()
                     }
@@ -185,18 +185,18 @@ private struct GitHubFooter: View {
 }
 
 private enum Feature: String, CaseIterable, Identifiable {
-    case dashboard, ledger, shortener, ranking, leaderboard, workflows, quickLink
+    case dashboard, ledger, shortener, leaderboard, gauntlet, workflows, quickLink
     var id: String { rawValue }
 
     /// The features grouped under the Asphalt Legends heading in the sidebar.
-    static let asphaltLegends: [Feature] = [.ranking, .leaderboard]
+    static let asphaltLegends: [Feature] = [.leaderboard, .gauntlet]
     var title: String {
         switch self {
         case .dashboard: "Server"
         case .ledger: "Ledger"
         case .shortener: "URL Shortener"
-        case .ranking: "Ranking Card"
         case .leaderboard: "Leaderboard"
+        case .gauntlet: "Gauntlet"
         case .workflows: "Workflows"
         case .quickLink: "Quick Links"
         }
@@ -206,8 +206,8 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .dashboard: "server.rack"
         case .ledger: "list.bullet.rectangle.portrait"
         case .shortener: "link"
-        case .ranking: "trophy"
-        case .leaderboard: "stopwatch"
+        case .leaderboard: "trophy"
+        case .gauntlet: "stopwatch"
         case .workflows: "point.3.connected.trianglepath.dotted"
         case .quickLink: "link.circle"
         }
@@ -384,7 +384,7 @@ private struct BoxedNativeField: View {
     }
 }
 
-struct RankingView: View {
+struct LeaderboardView: View {
     private static let cardSpacing: CGFloat = 14
 
     @Environment(AppModel.self) private var model
@@ -409,7 +409,8 @@ struct RankingView: View {
         Array(
             repeating: GridItem(
                 .flexible(minimum: 210, maximum: 360),
-                spacing: Self.cardSpacing
+                spacing: Self.cardSpacing,
+                alignment: .top
             ),
             count: 4
         )
@@ -512,7 +513,7 @@ struct RankingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .navigationTitle("Ranking Card")
+        .navigationTitle("Leaderboard")
         // ContentView recreates this page when the sidebar selection changes,
         // so returning to Rankings always performs a fresh backend request.
         .task { await load() }
@@ -549,7 +550,11 @@ struct RankingView: View {
                 ) {
                     ForEach(leaderboards) { leaderboard in
                         GalaxyLeaderboardCard(leaderboard: leaderboard)
-                            .frame(maxWidth: .infinity, alignment: .top)
+                            .frame(
+                                maxWidth: .infinity,
+                                maxHeight: .infinity,
+                                alignment: .top
+                            )
                     }
                 }
             }
@@ -565,7 +570,7 @@ struct RankingView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            let response = try await client.galaxyLeaderboards()
+            let response = try await client.leaderboards()
             leaderboards = response.leaderboards
             error = nil
             didCopyTierOneSnapshot = false
@@ -634,9 +639,9 @@ private struct TierOneLeaderboardSnapshot: View {
                     .background(Color.cyan.opacity(0.12), in: Capsule())
             }
 
-            Grid(alignment: .topLeading, horizontalSpacing: spacing, verticalSpacing: spacing) {
+            VStack(alignment: .leading, spacing: spacing) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    GridRow(alignment: .top) {
+                    HStack(alignment: .top, spacing: spacing) {
                         ForEach(row) { leaderboard in
                             GalaxyLeaderboardCard(leaderboard: leaderboard)
                                 .frame(width: cardWidth, alignment: .top)
@@ -738,10 +743,16 @@ private struct GalaxyLeaderboardCard: View {
     }
 
     private func tierResult(_ tier: GalaxyLeaderboardTier) -> String {
-        guard let time = tier.time, !time.isEmpty else {
-            return tier.rank.formatted()
+        if let time = tier.time, !time.isEmpty {
+            return "\(tier.rank.formatted()) (\(time))"
         }
-        return "\(tier.rank.formatted()) (\(time))"
+        if let score = tier.score {
+            let scoreText = score.formatted(
+                .number.grouping(.automatic).precision(.fractionLength(0...3))
+            )
+            return "\(tier.rank.formatted()) (\(scoreText))"
+        }
+        return tier.rank.formatted()
     }
 
     private var remainingText: String? {
@@ -1140,8 +1151,8 @@ enum LeaderboardTime {
     }
 }
 
-struct LeaderboardView: View {
-    /// The Leaderboard is one fixed canvas. A narrow window reveals the
+struct GauntletView: View {
+    /// The Gauntlet is one fixed canvas. A narrow window reveals the
     /// horizontal page scroller instead of squeezing or clipping columns.
     private static let minimumCanvasWidth: CGFloat = 1_400
     private static let minimumCanvasHeight: CGFloat = 720
@@ -1267,7 +1278,7 @@ struct LeaderboardView: View {
             .defaultScrollAnchor(.topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle("Leaderboard")
+        .navigationTitle("Gauntlet")
         .task { await loadCars() }
         .task { await loadTrackCatalogue() }
         .sheet(isPresented: $isAddingMap) {

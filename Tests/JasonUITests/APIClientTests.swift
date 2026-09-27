@@ -102,7 +102,7 @@ struct APIClientTests {
     @Test func decodesMapListForTheSelector() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
-            #expect(request.url?.path == "/v1/leaderboard/maps")
+            #expect(request.url?.path == "/v1/gauntlet/maps")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data(#"{"maps":[{"id":"san-francisco","name":"San Francisco","chinese_name":"旧金山"},{"id":"tokyo","name":"Tokyo"}]}"#.utf8)
@@ -121,9 +121,9 @@ struct APIClientTests {
     @Test func loadsGalaxyLeaderboards() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
-            #expect(request.url?.path == "/v1/ranking/leaderboards")
+            #expect(request.url?.path == "/v1/leaderboard")
             let data = Data(
-                #"{"source":"https://al.galaxylens.de/leaderboards","leaderboards":[{"id":249,"name":"啤酒节","total_participants":192865,"status":"active","updated_at":"2026-09-25T04:00:05Z","tiers":[{"label":"1%","rank":1928,"time":"1:01.715"},{"label":"100%","rank":192865,"time":"1:53.604"}],"event":{"id":"event-1","name":"OKTOBER FAST TLE","end_date":"2026-09-30","type":"LIMITED_TIME_EVENT","subtype":null},"season":{"id":"season-1","name":"SUNSET SPEEDWAY","end_date":"2026-10-14","type":null,"subtype":null}}]}"#.utf8
+                #"{"source":"https://al.galaxylens.de/leaderboards","leaderboards":[{"id":249,"name":"啤酒节","total_participants":192865,"status":"active","updated_at":"2026-09-25T04:00:05Z","tiers":[{"label":"1%","rank":1928,"time":"1:01.715","score":null},{"label":"100%","rank":192865,"time":"1:53.604","score":null}],"event":{"id":"event-1","name":"OKTOBER FAST TLE","end_date":"2026-09-30","type":"LIMITED_TIME_EVENT","subtype":null},"season":{"id":"season-1","name":"SUNSET SPEEDWAY","end_date":"2026-10-14","type":null,"subtype":null}}]}"#.utf8
             )
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -131,17 +131,37 @@ struct APIClientTests {
             )
         }
 
-        let response = try await client().galaxyLeaderboards()
+        let response = try await client().leaderboards()
 
         #expect(response.leaderboards.count == 1)
         #expect(response.leaderboards[0].name == "啤酒节")
         #expect(response.leaderboards[0].tiers[0].rank == 1928)
         #expect(response.leaderboards[0].tiers[0].time == "1:01.715")
+        #expect(response.leaderboards[0].tiers[0].score == nil)
         #expect(response.leaderboards[0].totalParticipants == 192865)
         #expect(response.leaderboards[0].event?.name == "OKTOBER FAST TLE")
         #expect(response.leaderboards[0].event?.type == "LIMITED_TIME_EVENT")
         #expect(response.leaderboards[0].isTierOne == false)
         #expect(response.leaderboards[0].season?.name == "SUNSET SPEEDWAY")
+    }
+
+    @Test func loadsScoreBasedGalaxyLeaderboardTiers() async throws {
+        MockURLProtocol.handler = { request in
+            let data = Data(
+                #"{"source":"https://al.galaxylens.de/leaderboards","leaderboards":[{"id":256,"name":"IMS∧聚光灯","total_participants":39198,"status":"active","updated_at":"2026-09-26T03:00:00Z","tiers":[{"label":"1%","rank":391,"time":null,"score":14519},{"label":"100%","rank":39198,"time":null,"score":880}],"event":{"id":"spotlight-1","name":"IMS Spotlight","end_date":"2026-10-14","type":"LIMITED_TIME_EVENT","subtype":"spotlight"},"season":null}]}"#.utf8
+            )
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                data
+            )
+        }
+
+        let leaderboard = try #require(await client().leaderboards().leaderboards.first)
+
+        #expect(leaderboard.tiers[0].rank == 391)
+        #expect(leaderboard.tiers[0].score == 14519)
+        #expect(leaderboard.tiers[0].time == nil)
+        #expect(leaderboard.isTierOne)
     }
 
     @Test func classifiesBurstOfSpeedAsTierTwo() async throws {
@@ -155,7 +175,7 @@ struct APIClientTests {
             )
         }
 
-        let leaderboard = try #require(await client().galaxyLeaderboards().leaderboards.first)
+        let leaderboard = try #require(await client().leaderboards().leaderboards.first)
 
         #expect(!leaderboard.isTierOne)
     }
@@ -163,7 +183,7 @@ struct APIClientTests {
     @Test func sendsMapWithItsTwoTracks() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
-            #expect(request.url?.path == "/v1/leaderboard/maps")
+            #expect(request.url?.path == "/v1/gauntlet/maps")
             let body = try #require(requestBodyData(request))
             let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(json["name"] as? String == "New York")
@@ -190,7 +210,7 @@ struct APIClientTests {
 
     @Test func decodesRankedLapTimesForAMap() async throws {
         MockURLProtocol.handler = { request in
-            #expect(request.url?.path == "/v1/leaderboard/maps/new-york")
+            #expect(request.url?.path == "/v1/gauntlet/maps/new-york")
             let data = Data(
                 #"{"id":"new-york","name":"New York","tracks":[{"id":"a-park-in-a-run","name":"A park In A run","times":[{"rank":1,"car":"C2","seconds":19.62},{"rank":2,"car":"C3","seconds":20.1}]},{"id":"harbor-sprint","name":"Harbor Sprint","times":[]}]}"#.utf8
             )
@@ -214,7 +234,7 @@ struct APIClientTests {
     @Test func recordsALapTimeOnATrack() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "PUT")
-            #expect(request.url?.path == "/v1/leaderboard/maps/new-york/tracks/a-park-in-a-run/times")
+            #expect(request.url?.path == "/v1/gauntlet/maps/new-york/tracks/a-park-in-a-run/times")
             let body = try #require(requestBodyData(request))
             let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(json["car"] as? String == "C2")
@@ -242,7 +262,7 @@ struct APIClientTests {
     @Test func deletesACarFromATrack() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "DELETE")
-            #expect(request.url?.path == "/v1/leaderboard/maps/new-york/tracks/a-park-in-a-run/times/C 2")
+            #expect(request.url?.path == "/v1/gauntlet/maps/new-york/tracks/a-park-in-a-run/times/C 2")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data(#"{"id":"a-park-in-a-run","name":"A park In A run","times":[]}"#.utf8)
@@ -261,7 +281,7 @@ struct APIClientTests {
     @Test func decodesCarRosterForTheSelector() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
-            #expect(request.url?.path == "/v1/leaderboard/cars")
+            #expect(request.url?.path == "/v1/gauntlet/cars")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data(#"{"cars":[{"id":"c2","name":"c2"},{"id":"杰弟","name":"杰弟"}]}"#.utf8)
@@ -312,7 +332,7 @@ struct APIClientTests {
     @Test func decodesTheTrackRosterForTheSelectors() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
-            #expect(request.url?.path == "/v1/leaderboard/tracks")
+            #expect(request.url?.path == "/v1/gauntlet/tracks")
             let data = Data(#"""
             {"tracks":[
               {"id":"railroad-bustle","name":"Railroad Bustle","chinese_name":"喧闹铁路",
@@ -338,7 +358,7 @@ struct APIClientTests {
     @Test func looksUpTracksByNameAcrossMaps() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
-            #expect(request.url?.path == "/v1/leaderboard/tracks/lookup")
+            #expect(request.url?.path == "/v1/gauntlet/tracks/lookup")
             let body = try #require(requestBodyData(request))
             let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(json["names"] as? [String] == ["WATERSLIDE WHIRL", "NOT A TRACK"])

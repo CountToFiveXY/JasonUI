@@ -46,6 +46,7 @@ struct GalaxyLeaderboardTier: Decodable, Equatable, Identifiable {
     let label: String
     let rank: Int
     let time: String?
+    let score: Double?
 
     var id: String { label }
     var displayLabel: String {
@@ -374,7 +375,7 @@ struct APIClient: Sendable {
 
     func maps() async throws -> [MapSummary] {
         let response: MapListResponse = try await request(
-            path: "v1/leaderboard/maps",
+            path: "v1/gauntlet/maps",
             method: "GET"
         )
         return response.maps
@@ -383,7 +384,7 @@ struct APIClient: Sendable {
     /// Every car holding a time anywhere, for the car selector.
     func cars() async throws -> [CarSummary] {
         let response: CarListResponse = try await request(
-            path: "v1/leaderboard/cars",
+            path: "v1/gauntlet/cars",
             method: "GET"
         )
         return response.cars
@@ -392,7 +393,7 @@ struct APIClient: Sendable {
     func createMap(name: String, tracks: [String]) async throws -> MapLeaderboard {
         struct Body: Encodable { let name: String; let tracks: [String] }
         return try await request(
-            path: "v1/leaderboard/maps",
+            path: "v1/gauntlet/maps",
             method: "POST",
             body: Body(name: name, tracks: tracks)
         )
@@ -401,7 +402,7 @@ struct APIClient: Sendable {
     /// Every track with the map it belongs to, for a track selector.
     func tracks() async throws -> [MapTrackSummary] {
         let response: TrackListResponse = try await request(
-            path: "v1/leaderboard/tracks",
+            path: "v1/gauntlet/tracks",
             method: "GET"
         )
         return response.tracks
@@ -411,14 +412,14 @@ struct APIClient: Sendable {
     func lookupTracks(names: [String]) async throws -> TrackLookup {
         struct Body: Encodable { let names: [String] }
         return try await request(
-            path: "v1/leaderboard/tracks/lookup",
+            path: "v1/gauntlet/tracks/lookup",
             method: "POST",
             body: Body(names: names)
         )
     }
 
     func mapLeaderboard(mapID: String) async throws -> MapLeaderboard {
-        try await request(path: "v1/leaderboard/maps/\(mapID)", method: "GET")
+        try await request(path: "v1/gauntlet/maps/\(mapID)", method: "GET")
     }
 
     func recordLapTime(
@@ -474,8 +475,8 @@ struct APIClient: Sendable {
         )
     }
 
-    func galaxyLeaderboards() async throws -> GalaxyLeaderboardListResponse {
-        try await request(path: "v1/ranking/leaderboards", method: "GET")
+    func leaderboards() async throws -> GalaxyLeaderboardListResponse {
+        try await request(path: "v1/leaderboard", method: "GET")
     }
 
     func shortURL(for path: String) -> URL? {
@@ -521,7 +522,7 @@ struct APIClient: Sendable {
     }
 
     private func lapTimesPath(mapID: String, trackID: String) -> String {
-        "v1/leaderboard/maps/\(mapID)/tracks/\(trackID)/times"
+        "v1/gauntlet/maps/\(mapID)/tracks/\(trackID)/times"
     }
 
     private func request<Response: Decodable, Body: Encodable>(
