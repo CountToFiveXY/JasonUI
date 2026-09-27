@@ -44,7 +44,7 @@ struct ShortenResponse: Decodable, Equatable {
 
 struct GalaxyLeaderboardTier: Decodable, Equatable, Identifiable {
     let label: String
-    let rank: Int
+    let rank: Int?
     let time: String?
 
     var id: String { label }
@@ -85,6 +85,17 @@ struct GalaxyLeaderboard: Decodable, Equatable, Identifiable {
     var isTierOne: Bool {
         let eventType = event?.type?.uppercased()
         let eventSubtype = event?.subtype?.lowercased()
+        let eventName = event?.name.lowercased() ?? ""
+        let leaderboardName = name.lowercased()
+        let isBurstOfSpeed = eventSubtype == "bos"
+            || eventSubtype?.contains("速度爆发") == true
+            || eventName.contains("burst of speed")
+            || leaderboardName.contains("速度爆发")
+
+        if eventType == "GRAND_PRIX" || isBurstOfSpeed {
+            return false
+        }
+
         return eventType == "SPECIAL_EVENT"
             || eventType == "CAR_HUNT"
             || eventSubtype == "spotlight"

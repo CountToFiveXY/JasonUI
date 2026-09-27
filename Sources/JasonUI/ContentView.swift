@@ -737,10 +737,11 @@ private struct GalaxyLeaderboardCard: View {
     }
 
     private func tierResult(_ tier: GalaxyLeaderboardTier) -> String {
+        guard let rank = tier.rank else { return "—" }
         guard let time = tier.time, !time.isEmpty else {
-            return tier.rank.formatted()
+            return rank.formatted()
         }
-        return "\(tier.rank.formatted()) (\(time))"
+        return "\(rank.formatted()) (\(time))"
     }
 
     private var remainingText: String? {
