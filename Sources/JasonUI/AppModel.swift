@@ -314,9 +314,7 @@ final class AppModel {
     }
 
     private func servicesLogURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/JasonApp", isDirectory: true)
-            .appendingPathComponent("services.log")
+        AppFileLogging.backendLogURL
     }
 
     private func adoptBackendPort(from backendDirectory: URL) {

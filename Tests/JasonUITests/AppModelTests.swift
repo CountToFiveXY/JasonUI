@@ -3,6 +3,15 @@ import Testing
 @testable import JasonUI
 
 struct AppModelTests {
+    @Test func storesLogsInTheDocumentsFolder() {
+        let expectedDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/JasonApp", isDirectory: true)
+
+        #expect(AppFileLogging.directoryURL == expectedDirectory)
+        #expect(AppFileLogging.frontendLogURL.lastPathComponent == "frontend.log")
+        #expect(AppFileLogging.backendLogURL.lastPathComponent == "backend.log")
+    }
+
     @Test func formatsAppReleaseLabel() {
         #expect(AppUpdateManager.releaseLabel(for: "1.0") == "v1.0")
         #expect(AppUpdateManager.releaseLabel(for: "v2.3.4") == "v2.3.4")

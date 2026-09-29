@@ -68,8 +68,12 @@ struct APIClientTests {
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/v1/messages")
             let body = try #require(requestBodyData(request))
-            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
-            #expect(json == ["id": "order-123", "status": "SUCCESS"])
+            let json = try #require(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            #expect(json["EventType"] as? String == "ORDER")
+            let payload = try #require(json["detailed_payload"] as? [String: String])
+            #expect(payload == ["id": "order-123", "status": "SUCCESS"])
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: 202,
@@ -77,7 +81,7 @@ struct APIClientTests {
                 headerFields: nil
             )!
             let data = Data(
-                #"{"id":"order-123","status":"SUCCESS","topic":"backend-messages","partition":0,"offset":4}"#.utf8
+                #"{"EventType":"ORDER","detailed_payload":{"id":"order-123","status":"SUCCESS"},"topic":"backend-messages","partition":0,"offset":4}"#.utf8
             )
             return (response, data)
         }
@@ -86,6 +90,7 @@ struct APIClientTests {
 
         #expect(response.id == "order-123")
         #expect(response.status == "SUCCESS")
+        #expect(response.eventType == "ORDER")
         #expect(response.topic == "backend-messages")
         #expect(response.partition == 0)
         #expect(response.offset == 4)

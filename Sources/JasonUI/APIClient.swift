@@ -30,12 +30,36 @@ struct OrderResponse: Decodable, Equatable {
     }
 }
 
-struct KafkaMessageResponse: Decodable, Equatable {
+private struct KafkaOrderStatusPayload: Codable, Equatable {
     let id: String
     let status: String
+}
+
+private struct KafkaOrderMessageRequest: Encodable {
+    let eventType = "ORDER"
+    let detailedPayload: KafkaOrderStatusPayload
+
+    enum CodingKeys: String, CodingKey {
+        case eventType = "EventType"
+        case detailedPayload = "detailed_payload"
+    }
+}
+
+struct KafkaMessageResponse: Decodable, Equatable {
+    let eventType: String
+    private let detailedPayload: KafkaOrderStatusPayload
     let topic: String
     let partition: Int
     let offset: Int
+
+    var id: String { detailedPayload.id }
+    var status: String { detailedPayload.status }
+
+    enum CodingKeys: String, CodingKey {
+        case eventType = "EventType"
+        case detailedPayload = "detailed_payload"
+        case topic, partition, offset
+    }
 }
 
 struct ShortenResponse: Decodable, Equatable {
@@ -369,7 +393,12 @@ struct APIClient: Sendable {
         try await request(
             path: "v1/messages",
             method: "POST",
-            body: ["id": orderID, "status": "SUCCESS"]
+            body: KafkaOrderMessageRequest(
+                detailedPayload: KafkaOrderStatusPayload(
+                    id: orderID,
+                    status: "SUCCESS"
+                )
+            )
         )
     }
 

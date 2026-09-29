@@ -2,7 +2,12 @@ import SwiftUI
 
 @main
 struct JasonUIApp: App {
-    @State private var model = AppModel()
+    @State private var model: AppModel
+
+    init() {
+        AppFileLogging.redirectFrontendOutput()
+        _model = State(initialValue: AppModel())
+    }
 
     var body: some Scene {
         WindowGroup("JasonApp") {

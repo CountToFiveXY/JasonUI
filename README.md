@@ -133,5 +133,6 @@ replace the app manually.
 ## Troubleshooting
 
 - App installation errors remain visible in the installer Terminal window.
-- Service startup logs are stored at `~/Library/Logs/JasonApp/services.log`.
+- Frontend logs are stored at `~/Documents/JasonApp/frontend.log`.
+- Backend and service startup logs are stored at `~/Documents/JasonApp/backend.log`.
 - Keep `JasonUI` and `JasonPython` in the same parent folder.
