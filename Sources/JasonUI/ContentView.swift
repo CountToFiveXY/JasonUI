@@ -1154,7 +1154,7 @@ enum LeaderboardTime {
 struct GauntletView: View {
     /// The Gauntlet is one fixed canvas. A narrow window reveals the
     /// horizontal page scroller instead of squeezing or clipping columns.
-    private static let minimumCanvasWidth: CGFloat = 1_400
+    private static let minimumCanvasWidth: CGFloat = 940
     private static let minimumCanvasHeight: CGFloat = 720
     private static let canvasPadding: CGFloat = 12
 
@@ -1640,7 +1640,7 @@ private struct TrackLeaderboardCard: View {
 
                 HStack(spacing: 5) {
                     Picker("", selection: $carChoice) {
-                        Text("Select car").tag(CarChoice.unselected)
+                        Text("Select").tag(CarChoice.unselected)
                         if !cars.isEmpty {
                             Divider()
                             ForEach(cars) { car in
