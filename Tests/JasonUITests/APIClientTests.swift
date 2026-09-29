@@ -96,6 +96,38 @@ struct APIClientTests {
         #expect(response.offset == 4)
     }
 
+    @Test func startsSchedulingThroughKafkaAndDecodesMetadata() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/v1/messages")
+            let body = try #require(requestBodyData(request))
+            let json = try #require(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            #expect(json["EventType"] as? String == "SCHEDULING")
+            let payload = try #require(json["detailed_payload"] as? [String: String])
+            #expect(payload == ["action": "START"])
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 202,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let data = Data(
+                #"{"EventType":"SCHEDULING","detailed_payload":{"action":"START"},"topic":"scheduler-control","partition":1,"offset":9}"#.utf8
+            )
+            return (response, data)
+        }
+
+        let response = try await client().startScheduling()
+
+        #expect(response.eventType == "SCHEDULING")
+        #expect(response.action == "START")
+        #expect(response.topic == "scheduler-control")
+        #expect(response.partition == 1)
+        #expect(response.offset == 9)
+    }
+
     @Test func buildsFirestoreMapURL() {
         let url = client().firestoreMapURL(mapID: "new-york")
         #expect(

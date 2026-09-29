@@ -45,6 +45,20 @@ private struct KafkaOrderMessageRequest: Encodable {
     }
 }
 
+private struct KafkaSchedulingPayload: Codable, Equatable {
+    let action: String
+}
+
+private struct KafkaSchedulingMessageRequest: Encodable {
+    let eventType = "SCHEDULING"
+    let detailedPayload: KafkaSchedulingPayload
+
+    enum CodingKeys: String, CodingKey {
+        case eventType = "EventType"
+        case detailedPayload = "detailed_payload"
+    }
+}
+
 struct KafkaMessageResponse: Decodable, Equatable {
     let eventType: String
     private let detailedPayload: KafkaOrderStatusPayload
@@ -54,6 +68,22 @@ struct KafkaMessageResponse: Decodable, Equatable {
 
     var id: String { detailedPayload.id }
     var status: String { detailedPayload.status }
+
+    enum CodingKeys: String, CodingKey {
+        case eventType = "EventType"
+        case detailedPayload = "detailed_payload"
+        case topic, partition, offset
+    }
+}
+
+struct KafkaSchedulingResponse: Decodable, Equatable {
+    let eventType: String
+    private let detailedPayload: KafkaSchedulingPayload
+    let topic: String
+    let partition: Int
+    let offset: Int
+
+    var action: String { detailedPayload.action }
 
     enum CodingKeys: String, CodingKey {
         case eventType = "EventType"
@@ -398,6 +428,16 @@ struct APIClient: Sendable {
                     id: orderID,
                     status: "SUCCESS"
                 )
+            )
+        )
+    }
+
+    func startScheduling() async throws -> KafkaSchedulingResponse {
+        try await request(
+            path: "v1/messages",
+            method: "POST",
+            body: KafkaSchedulingMessageRequest(
+                detailedPayload: KafkaSchedulingPayload(action: "START")
             )
         )
     }

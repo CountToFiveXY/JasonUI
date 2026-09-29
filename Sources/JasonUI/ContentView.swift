@@ -966,6 +966,7 @@ struct WorkflowsView: View {
     @State private var workflowResponse: WorkflowResponse?
     @State private var orderResponse: OrderResponse?
     @State private var kafkaResponse: KafkaMessageResponse?
+    @State private var schedulingResponse: KafkaSchedulingResponse?
     @State private var isLoading = false
     @State private var error: String?
     @FocusState private var isUserIDFieldFocused: Bool
@@ -1000,6 +1001,7 @@ struct WorkflowsView: View {
                     )
                 }
                 LabeledContent("Status", value: "SUCCESS")
+                Button("Start Scheduling") { Task { await startScheduling() } }
             }
             if let workflowResponse {
                 Section("Result") {
@@ -1044,6 +1046,17 @@ struct WorkflowsView: View {
                     LabeledContent("Topic", value: kafkaResponse.topic)
                     LabeledContent("Partition", value: String(kafkaResponse.partition))
                     LabeledContent("Offset", value: String(kafkaResponse.offset))
+                }
+            }
+            if let schedulingResponse {
+                Section("Kafka Scheduling") {
+                    LabeledContent("Action", value: schedulingResponse.action)
+                    LabeledContent("Topic", value: schedulingResponse.topic)
+                    LabeledContent(
+                        "Partition",
+                        value: String(schedulingResponse.partition)
+                    )
+                    LabeledContent("Offset", value: String(schedulingResponse.offset))
                 }
             }
             ErrorSection(message: error)
@@ -1091,6 +1104,20 @@ struct WorkflowsView: View {
         defer { isLoading = false }
         do {
             kafkaResponse = try await client.sendOrderSuccess(orderID: trimmedOrderID)
+            error = nil
+        }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func startScheduling() async {
+        guard let client = model.client else {
+            error = APIError.invalidBaseURL.localizedDescription
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            schedulingResponse = try await client.startScheduling()
             error = nil
         }
         catch { self.error = error.localizedDescription }
