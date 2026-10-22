@@ -323,40 +323,6 @@ struct MapLeaderboard: Decodable, Equatable, Identifiable {
     }
 }
 
-enum CardType: String, CaseIterable, Identifiable, Codable {
-    case se = "SE"
-    case sp = "SP"
-    case ch = "CH"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .ch: "Car Hunt"
-        case .se: "Special Event"
-        case .sp: "Spotlight"
-        }
-    }
-
-    /// The percentage rows a generated card shows.
-    ///
-    /// The backend owns these — `PERCENTAGES` in its ranking service, which
-    /// has a test pinning the values. They are mirrored here only to label the
-    /// event-type picker, so a change there must be copied across.
-    var percentages: [Int] {
-        switch self {
-        case .ch: [1, 5, 25, 50, 75, 100]
-        case .sp: [1, 10, 25, 50, 75, 100]
-        case .se: [5, 10, 25, 50, 75, 100]
-        }
-    }
-
-    /// No unit suffix: it would wrap onto a second line in a card column.
-    var percentageSummary: String {
-        percentages.map(String.init).joined(separator: "/")
-    }
-}
-
 enum APIError: LocalizedError, Equatable {
     case invalidBaseURL
     case invalidResponse
@@ -533,15 +499,6 @@ struct APIClient: Sendable {
 
     func image() async throws -> Data {
         try await dataRequest(path: "display", method: "GET")
-    }
-
-    func ranking(total: Int, type: CardType, car: String) async throws -> Data {
-        struct Body: Encodable { let total: Int; let type: CardType; let car: String }
-        return try await dataRequest(
-            path: "v1/ranking",
-            method: "POST",
-            body: Body(total: total, type: type, car: car)
-        )
     }
 
     func leaderboards() async throws -> GalaxyLeaderboardListResponse {
