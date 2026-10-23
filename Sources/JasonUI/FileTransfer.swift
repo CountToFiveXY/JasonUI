@@ -45,36 +45,23 @@ struct FileTransferView: View {
                     }
                 ))
                 .disabled(isWorking)
-                if status?.running == true, let code = status?.uploadCode {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Upload code")
-                        Spacer()
-                        Text(code)
-                            .font(.system(.title, design: .monospaced).bold())
-                            .kerning(4)
-                            .textSelection(.enabled)
-                    }
-                    Text("Devices enter this code once before they can upload. It is the same on every Mac; a changed code applies the next time uploads are turned on.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 if status?.running == true {
                     if let address = status?.url, let url = URL(string: address) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(address)
-                                .font(.system(.title3, design: .monospaced))
-                                .textSelection(.enabled)
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(address)
+                                    .textSelection(.enabled)
+                                Spacer()
+                                Link("Open Download Page", destination: url)
+                            }
                             Text(status?.hostName == nil
                                  ? "Type this address in a browser on another device."
                                  : "Type this address in a browser on any device. It stays the same whichever Mac is sharing.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            HStack {
-                                Button(didCopyAddress ? "Copied" : "Copy Address") {
-                                    NSPasteboard.general.clearContents()
-                                    didCopyAddress = NSPasteboard.general.setString(address, forType: .string)
-                                }
-                                Link("Open Download Page", destination: url)
+                            Button(didCopyAddress ? "Copied" : "Copy Address") {
+                                NSPasteboard.general.clearContents()
+                                didCopyAddress = NSPasteboard.general.setString(address, forType: .string)
                             }
                             if status?.hostName != nil, let ipAddress = status?.ipURL {
                                 Text("If a device can't open it (some Android phones), use \(ipAddress)")
