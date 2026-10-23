@@ -19,13 +19,14 @@ struct APIClientTests {
             #expect(request.url?.path == "/v1/file-transfer/start")
             let body = try #require(requestBodyData(request))
             let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Bool])
-            #expect(json == ["allow_uploads": true])
-            let responseBody = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":80,"host_name":"jason.local","url":"http://jason.local","ip_url":"http://192.168.1.23","allow_uploads":true,"upload_code":"0427","files":[{"name":"report.pdf","size":48213}]}"#
+            #expect(json == ["allow_uploads": true, "require_code": true])
+            let responseBody = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":80,"host_name":"jason.local","url":"http://jason.local","ip_url":"http://192.168.1.23","allow_uploads":true,"require_code":true,"access_code":"0427","files":[{"name":"report.pdf","size":48213}]}"#
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(responseBody.utf8))
         }
-        let status = try await client().startFileTransfer(allowUploads: true)
+        let status = try await client().startFileTransfer(allowUploads: true, requireCode: true)
         #expect(status.allowUploads)
-        #expect(status.uploadCode == "0427")
+        #expect(status.requireCode)
+        #expect(status.accessCode == "0427")
         #expect(status.running)
         #expect(status.hostName == "jason.local")
         #expect(status.url == "http://jason.local")
@@ -46,6 +47,7 @@ struct APIClientTests {
         #expect(status.files.isEmpty)
         // A backend from before uploads omits the field; treat it as off.
         #expect(!status.allowUploads)
+        #expect(!status.requireCode)
     }
 
     @Test func sendsShortenRequest() async throws {

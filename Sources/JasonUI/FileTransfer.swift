@@ -8,6 +8,7 @@ struct FileTransferView: View {
     @Environment(AppModel.self) private var model
     @State private var status: FileTransferStatus?
     @State private var allowUploads = false
+    @State private var requireCode = false
     @State private var isWorking = false
     @State private var didCopyAddress = false
     @State private var error: String?
@@ -26,9 +27,7 @@ struct FileTransferView: View {
                         Text("Devices on the same Wi-Fi or local network can download these files.")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Start Sharing") {
-                            Task { await perform { [allowUploads] in try await $0.startFileTransfer(allowUploads: allowUploads) } }
-                        }
+                        Button("Start Sharing") { Task { await applySwitches() } }
                             .buttonStyle(.borderedProminent)
                             .disabled(isWorking)
                     }
@@ -38,10 +37,15 @@ struct FileTransferView: View {
                     get: { allowUploads },
                     set: { value in
                         allowUploads = value
-                        // While sharing, apply the change right away.
-                        if status?.running == true {
-                            Task { await perform { try await $0.startFileTransfer(allowUploads: value) } }
-                        }
+                        if status?.running == true { Task { await applySwitches() } }
+                    }
+                ))
+                .disabled(isWorking)
+                Toggle("Require code", isOn: Binding(
+                    get: { requireCode },
+                    set: { value in
+                        requireCode = value
+                        if status?.running == true { Task { await applySwitches() } }
                     }
                 ))
                 .disabled(isWorking)
@@ -135,10 +139,26 @@ struct FileTransferView: View {
         }
     }
 
+    /// Starts sharing with both switches, or applies them while sharing.
+    private func applySwitches() async {
+        await perform { [allowUploads, requireCode] in
+            try await $0.startFileTransfer(allowUploads: allowUploads, requireCode: requireCode)
+        }
+        // A refused change, such as no code set in Firestore, leaves the
+        // server as it was; show that rather than the switch just flipped.
+        if error != nil, let status, status.running {
+            allowUploads = status.allowUploads
+            requireCode = status.requireCode
+        }
+    }
+
     private func apply(_ newStatus: FileTransferStatus) {
         if newStatus.url != status?.url { didCopyAddress = false }
-        // While sharing, the switch shows what the server is actually doing.
-        if newStatus.running { allowUploads = newStatus.allowUploads }
+        // While sharing, the switches show what the server is actually doing.
+        if newStatus.running {
+            allowUploads = newStatus.allowUploads
+            requireCode = newStatus.requireCode
+        }
         status = newStatus
     }
 
