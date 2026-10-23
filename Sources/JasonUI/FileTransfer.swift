@@ -3,10 +3,12 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// Shares ~/Documents/JasonApp/FileTransfer through the JasonPython backend,
-/// so devices on the same network can download its files from a browser.
+/// so devices on the same network can download its files from a browser,
+/// and upload to it when the host allows.
 struct FileTransferView: View {
     @Environment(AppModel.self) private var model
     @State private var status: FileTransferStatus?
+    @State private var allowUploads = false
     @State private var isWorking = false
     @State private var didCopyAddress = false
     @State private var error: String?
@@ -25,11 +27,37 @@ struct FileTransferView: View {
                         Text("Devices on the same Wi-Fi or local network can download these files.")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Start Sharing") { Task { await perform { try await $0.startFileTransfer() } } }
+                        Button("Start Sharing") {
+                            Task { await perform { [allowUploads] in try await $0.startFileTransfer(allowUploads: allowUploads) } }
+                        }
                             .buttonStyle(.borderedProminent)
                             .disabled(isWorking)
                     }
                     if isWorking { ProgressView().controlSize(.small) }
+                }
+                Toggle("Allow devices to upload files", isOn: Binding(
+                    get: { allowUploads },
+                    set: { value in
+                        allowUploads = value
+                        // While sharing, apply the change right away.
+                        if status?.running == true {
+                            Task { await perform { try await $0.startFileTransfer(allowUploads: value) } }
+                        }
+                    }
+                ))
+                .disabled(isWorking)
+                if status?.running == true, let code = status?.uploadCode {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Upload code")
+                        Spacer()
+                        Text(code)
+                            .font(.system(.title, design: .monospaced).bold())
+                            .kerning(4)
+                            .textSelection(.enabled)
+                    }
+                    Text("Devices enter this code once before they can upload. Only share it with people you trust; a new code is issued each time uploads are turned on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 if status?.running == true {
                     if let address = status?.url, let url = URL(string: address) {
@@ -132,6 +160,8 @@ struct FileTransferView: View {
 
     private func apply(_ newStatus: FileTransferStatus) {
         if newStatus.url != status?.url { didCopyAddress = false }
+        // While sharing, the switch shows what the server is actually doing.
+        if newStatus.running { allowUploads = newStatus.allowUploads }
         status = newStatus
     }
 

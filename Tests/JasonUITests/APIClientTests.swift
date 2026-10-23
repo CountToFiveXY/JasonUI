@@ -17,10 +17,15 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/v1/file-transfer/start")
-            let body = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":80,"host_name":"jason.local","url":"http://jason.local","ip_url":"http://192.168.1.23","files":[{"name":"report.pdf","size":48213}]}"#
+            let body = try #require(requestBodyData(request))
+            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Bool])
+            #expect(json == ["allow_uploads": true])
+            let body = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":80,"host_name":"jason.local","url":"http://jason.local","ip_url":"http://192.168.1.23","allow_uploads":true,"upload_code":"482913","files":[{"name":"report.pdf","size":48213}]}"#
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let status = try await client().startFileTransfer()
+        let status = try await client().startFileTransfer(allowUploads: true)
+        #expect(status.allowUploads)
+        #expect(status.uploadCode == "482913")
         #expect(status.running)
         #expect(status.hostName == "jason.local")
         #expect(status.url == "http://jason.local")
@@ -32,7 +37,7 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
             #expect(request.url?.path == "/v1/file-transfer")
-            let body = #"{"running":false,"folder":"/tmp/FileTransfer","port":null,"host_name":null,"url":null,"ip_url":null,"files":[]}"#
+            let body = #"{"running":false,"folder":"/tmp/FileTransfer","port":null,"host_name":null,"url":null,"ip_url":null,"allow_uploads":false,"upload_code":null,"files":[]}"#
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
         let status = try await client().fileTransferStatus()
