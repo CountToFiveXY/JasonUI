@@ -37,13 +37,15 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
             #expect(request.url?.path == "/v1/file-transfer")
-            let body = #"{"running":false,"folder":"/tmp/FileTransfer","port":null,"host_name":null,"url":null,"ip_url":null,"allow_uploads":false,"upload_code":null,"files":[]}"#
+            let body = #"{"running":false,"folder":"/tmp/FileTransfer","port":null,"host_name":null,"url":null,"ip_url":null,"files":[]}"#
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
         let status = try await client().fileTransferStatus()
         #expect(!status.running)
         #expect(status.port == nil)
         #expect(status.files.isEmpty)
+        // A backend from before uploads omits the field; treat it as off.
+        #expect(!status.allowUploads)
     }
 
     @Test func sendsShortenRequest() async throws {

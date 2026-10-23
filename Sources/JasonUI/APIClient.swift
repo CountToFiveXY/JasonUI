@@ -178,16 +178,19 @@ struct FileTransferStatus: Decodable, Equatable {
     let url: String?
     /// The same page by IP address, for devices that cannot resolve .local names.
     let ipURL: String?
-    let allowUploads: Bool
+    /// Optional so a backend from before uploads still decodes, as uploads off.
+    private let uploadsAllowed: Bool?
     /// The code devices enter before they can upload; nil while uploads are off.
     let uploadCode: String?
     let files: [SharedFile]
+
+    var allowUploads: Bool { uploadsAllowed ?? false }
 
     enum CodingKeys: String, CodingKey {
         case running, folder, port, url, files
         case hostName = "host_name"
         case ipURL = "ip_url"
-        case allowUploads = "allow_uploads"
+        case uploadsAllowed = "allow_uploads"
         case uploadCode = "upload_code"
     }
 }
