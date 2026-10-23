@@ -146,8 +146,10 @@ struct GalaxyLeaderboard: Decodable, Equatable, Identifiable {
             || eventSubtype?.contains("速度爆发") == true
             || eventName.contains("burst of speed")
             || leaderboardName.contains("速度爆发")
+        let isMoslerSpecialEvent = eventType == "SPECIAL_EVENT"
+            && (eventName.contains("mosler") || leaderboardName.contains("mosler"))
 
-        if eventType == "GRAND_PRIX" || isBurstOfSpeed {
+        if eventType == "GRAND_PRIX" || (isBurstOfSpeed && !isMoslerSpecialEvent) {
             return false
         }
 
@@ -387,14 +389,7 @@ struct APIClient: Sendable {
     }
 
     func temporalIsAvailable() async -> Bool? {
-        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
-              components.host != nil else { return nil }
-        components.scheme = "http"
-        components.port = 8233
-        components.path = "/"
-        components.query = nil
-        components.fragment = nil
-        guard let url = components.url else { return nil }
+        guard let url = temporalUIURL() else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 3
@@ -565,14 +560,34 @@ struct APIClient: Sendable {
     }
 
     func temporalWorkflowURL(workflowID: String, namespace: String = "default") -> URL? {
+        guard let uiURL = temporalUIURL(),
+              var components = URLComponents(
+                  url: uiURL,
+                  resolvingAgainstBaseURL: false
+              ) else { return nil }
+        components.path = "/namespaces/\(namespace)/workflows"
+        return components.url?.appendingPathComponent(workflowID)
+    }
+
+    /// The Temporal Web UI paired with the configured backend host.
+    func temporalUIURL() -> URL? {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
               components.host != nil else { return nil }
         components.scheme = "http"
         components.port = 8233
-        components.path = "/namespaces/\(namespace)/workflows"
+        components.path = "/"
         components.query = nil
         components.fragment = nil
-        return components.url?.appendingPathComponent(workflowID)
+        return components.url
+    }
+
+    /// The default Firestore database in the Firebase console.
+    func firestoreURL() -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "console.firebase.google.com"
+        components.path = "/project/jasonapp-xm0830/firestore/databases/-default-/data"
+        return components.url
     }
 
     /// The maps collection in the Firebase console.

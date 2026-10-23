@@ -248,8 +248,18 @@ struct DashboardView: View {
                 ServiceStatusRow(title: "Backend Server", state: model.backendState)
                 ServiceStatusRow(title: "Redis", state: model.redisState)
                 ServiceStatusRow(title: "Kafka", state: model.kafkaState)
-                ServiceStatusRow(title: "Temporal", state: model.temporalState)
-                ServiceStatusRow(title: "Google Cloud / Firestore", state: model.googleCloudState)
+                ServiceStatusRow(
+                    title: "Temporal",
+                    state: model.temporalState,
+                    successLinkLabel: "Temporal UI",
+                    successDestination: model.client?.temporalUIURL()
+                )
+                ServiceStatusRow(
+                    title: "Google Cloud / Firestore",
+                    state: model.googleCloudState,
+                    successLinkLabel: "Firestore Console",
+                    successDestination: model.client?.firestoreURL()
+                )
                 HStack {
                     let isBusy = model.isChecking || model.isActivating || model.isClosing || model.isRestarting
                     Spacer()
@@ -289,15 +299,23 @@ struct DashboardView: View {
 private struct ServiceStatusRow: View {
     let title: String
     let state: AppModel.ServiceState
+    var successLinkLabel: String? = nil
+    var successDestination: URL? = nil
 
     var body: some View {
         HStack(spacing: 8) {
             indicator
             Text(title)
             Spacer()
-            Text(detail)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+            if case .running = state,
+               let successLinkLabel,
+               let successDestination {
+                Link(successLinkLabel, destination: successDestination)
+            } else {
+                Text(detail)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
         }
     }
 

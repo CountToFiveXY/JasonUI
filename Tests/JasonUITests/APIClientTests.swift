@@ -72,6 +72,17 @@ struct APIClientTests {
         )
     }
 
+    @Test func buildsTemporalUIURL() {
+        #expect(client().temporalUIURL()?.absoluteString == "http://127.0.0.1:8233/")
+    }
+
+    @Test func buildsFirestoreURL() {
+        #expect(
+            client().firestoreURL()?.absoluteString ==
+                "https://console.firebase.google.com/project/jasonapp-xm0830/firestore/databases/-default-/data"
+        )
+    }
+
     @Test func buildsFirestoreOrderURL() {
         let url = client().firestoreOrderURL(orderID: "order-123")
         #expect(
@@ -258,6 +269,22 @@ struct APIClientTests {
         let leaderboard = try #require(await client().leaderboards().leaderboards.first)
 
         #expect(!leaderboard.isTierOne)
+    }
+
+    @Test func classifiesMoslerSpecialEventFromPreviousSeasonAsTierOne() async throws {
+        MockURLProtocol.handler = { request in
+            let data = Data(
+                #"{"source":"https://al.galaxylens.de/leaderboards","leaderboards":[{"id":264,"name":"Mosler特赛","total_participants":33989,"status":"active","updated_at":"2026-10-16T05:00:05Z","tiers":[],"event":{"id":"mosler-se","name":"MOSLER SUPER GT BURST OF SPEED SE","end_date":"2026-10-16","type":"SPECIAL_EVENT","subtype":"速度爆发联动特赛"},"season":{"id":"previous-season","name":"SUNSET SPEEDWAY","end_date":"2026-10-14","type":null,"subtype":null}}]}"#.utf8
+            )
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                data
+            )
+        }
+
+        let leaderboard = try #require(await client().leaderboards().leaderboards.first)
+
+        #expect(leaderboard.isTierOne)
     }
 
     @Test func sendsMapWithItsTwoTracks() async throws {
