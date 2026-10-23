@@ -58,11 +58,6 @@ struct FileTransferView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                // The code is kept in Firestore and changed there by hand.
-                if let url = model.client?.firestoreUploadCodeURL() {
-                    Link("Change Upload Code in Firestore", destination: url)
-                        .font(.caption)
-                }
                 if status?.running == true {
                     if let address = status?.url, let url = URL(string: address) {
                         VStack(alignment: .leading, spacing: 8) {

@@ -64,14 +64,6 @@ struct APIClientTests {
         #expect(url?.absoluteString == "http://127.0.0.1:8233/namespaces/default/workflows/greeting-123")
     }
 
-    @Test func buildsFirestoreUploadCodeURL() {
-        let url = client().firestoreUploadCodeURL()
-        #expect(
-            url?.absoluteString ==
-                "https://console.firebase.google.com/project/jasonapp-xm0830/firestore/databases/-default-/data/~2Fconfig~2Ffile_transfer"
-        )
-    }
-
     @Test func buildsTemporalUIURL() {
         #expect(client().temporalUIURL()?.absoluteString == "http://127.0.0.1:8233/")
     }
