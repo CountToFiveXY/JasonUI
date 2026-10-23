@@ -1,5 +1,4 @@
 import AppKit
-import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// Shares ~/Documents/JasonApp/FileTransfer through the JasonPython backend,
@@ -61,36 +60,27 @@ struct FileTransferView: View {
                 }
                 if status?.running == true {
                     if let address = status?.url, let url = URL(string: address) {
-                        HStack(alignment: .top, spacing: 16) {
-                            if let code = QRCode.image(for: address) {
-                                Image(nsImage: code)
-                                    .interpolation(.none)
-                                    .resizable()
-                                    .frame(width: 132, height: 132)
-                                    .accessibilityLabel("QR code for \(address)")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(address)
+                                .font(.system(.title3, design: .monospaced))
+                                .textSelection(.enabled)
+                            Text(status?.hostName == nil
+                                 ? "Type this address in a browser on another device."
+                                 : "Type this address in a browser on any device. It stays the same whichever Mac is sharing.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                Button(didCopyAddress ? "Copied" : "Copy Address") {
+                                    NSPasteboard.general.clearContents()
+                                    didCopyAddress = NSPasteboard.general.setString(address, forType: .string)
+                                }
+                                Link("Open Download Page", destination: url)
                             }
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(address)
-                                    .font(.system(.title3, design: .monospaced))
-                                    .textSelection(.enabled)
-                                Text(status?.hostName == nil
-                                     ? "Scan the code or type this address on another device."
-                                     : "Scan the code or type this address on any device. It stays the same whichever Mac is sharing.")
+                            if status?.hostName != nil, let ipAddress = status?.ipURL {
+                                Text("If a device can't open it (some Android phones), use \(ipAddress)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                HStack {
-                                    Button(didCopyAddress ? "Copied" : "Copy Address") {
-                                        NSPasteboard.general.clearContents()
-                                        didCopyAddress = NSPasteboard.general.setString(address, forType: .string)
-                                    }
-                                    Link("Open Download Page", destination: url)
-                                }
-                                if status?.hostName != nil, let ipAddress = status?.ipURL {
-                                    Text("If a device can't open it (some Android phones), use \(ipAddress)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
-                                }
+                                    .textSelection(.enabled)
                             }
                         }
                     } else {
@@ -169,18 +159,5 @@ struct FileTransferView: View {
         let folder = URL(fileURLWithPath: path, isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(folder)
-    }
-}
-
-enum QRCode {
-    /// A crisp QR code for the address; scale it with interpolation off.
-    static func image(for text: String) -> NSImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(text.utf8)
-        filter.correctionLevel = "M"
-        // Scale before rasterizing so every module is whole pixels and stays sharp.
-        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
-              let bitmap = CIContext().createCGImage(output, from: output.extent) else { return nil }
-        return NSImage(cgImage: bitmap, size: NSSize(width: bitmap.width, height: bitmap.height))
     }
 }
