@@ -54,9 +54,14 @@ struct FileTransferView: View {
                             .kerning(4)
                             .textSelection(.enabled)
                     }
-                    Text("Devices enter this code once before they can upload. Only share it with people you trust; a new code is issued each time uploads are turned on.")
+                    Text("Devices enter this code once before they can upload. It is the same on every Mac; a changed code applies the next time uploads are turned on.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                // The code is kept in Firestore and changed there by hand.
+                if let url = model.client?.firestoreUploadCodeURL() {
+                    Link("Change Upload Code in Firestore", destination: url)
+                        .font(.caption)
                 }
                 if status?.running == true {
                     if let address = status?.url, let url = URL(string: address) {

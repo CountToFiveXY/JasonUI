@@ -588,6 +588,11 @@ struct APIClient: Sendable {
         firestoreDocumentURL(path: "orders/\(orderID)")
     }
 
+    /// The document holding the fixed upload code for File Transfer.
+    func firestoreUploadCodeURL() -> URL? {
+        firestoreDocumentURL(path: "config/file_transfer")
+    }
+
     private func firestoreDocumentURL(path: String) -> URL? {
         var components = URLComponents()
         components.scheme = "https"
