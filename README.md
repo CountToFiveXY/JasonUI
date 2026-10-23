@@ -49,6 +49,30 @@ Workspace/
    Tools (`sudo xcode-select -s /Library/Developer/CommandLineTools`).
 
 2. Install [Homebrew](https://brew.sh/) if it is not already installed.
+   Check first:
+
+   ```bash
+   brew --version
+   ```
+
+   If that reports `command not found`, run the official installer. It asks
+   for your Mac password and may install the Command Line Tools:
+
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+   On Apple silicon Macs, Homebrew installs to `/opt/homebrew`, which is not
+   on your `PATH` yet. Add it for future Terminal windows and this one:
+
+   ```bash
+   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+   eval "$(/opt/homebrew/bin/brew shellenv)"
+   ```
+
+   The installer prints the same commands under **Next steps**; follow those
+   if they differ.
+
 3. Install the backend tools:
 
    ```bash
