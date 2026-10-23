@@ -19,6 +19,7 @@ final class AppModel {
     }
     var isChecking = false
     var isActivating = false
+    var isRestarting = false
     var isClosing = false
     var health: HealthResponse?
     var backendState = ServiceState.unknown
@@ -169,6 +170,17 @@ final class AppModel {
         } else {
             "Services did not become ready:\n\(logExcerpt)\n\nFull log: \(logPath)"
         }
+    }
+
+    /// Stops the running services, then starts them again from the backend
+    /// checkout, so local backend changes are picked up. Activate alone
+    /// returns early while a healthy backend is already running.
+    func restartServices() async {
+        isRestarting = true
+        defer { isRestarting = false }
+        await closeServer()
+        guard errorMessage == nil else { return }
+        await activateAllServices()
     }
 
     func closeServer() async {

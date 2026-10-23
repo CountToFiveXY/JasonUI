@@ -251,19 +251,29 @@ struct DashboardView: View {
                 ServiceStatusRow(title: "Temporal", state: model.temporalState)
                 ServiceStatusRow(title: "Google Cloud / Firestore", state: model.googleCloudState)
                 HStack {
+                    let isBusy = model.isChecking || model.isActivating || model.isClosing || model.isRestarting
                     Spacer()
                     Button("Check Connection") {
                         Task { await model.checkConnection() }
                     }
-                    .disabled(model.isChecking || model.isActivating || model.isClosing)
-                    Button(model.isActivating ? "Activating…" : "Activate All Services") {
-                        Task { await model.activateAllServices() }
+                    .disabled(isBusy)
+                    // While services run, starting again means restarting them,
+                    // which loads the backend checkout's current code.
+                    if model.backendState == .running() || model.isRestarting {
+                        Button(model.isRestarting ? "Restarting…" : "Restart Services") {
+                            Task { await model.restartServices() }
+                        }
+                        .disabled(isBusy)
+                    } else {
+                        Button(model.isActivating ? "Activating…" : "Activate All Services") {
+                            Task { await model.activateAllServices() }
+                        }
+                        .disabled(isBusy)
                     }
-                    .disabled(model.isChecking || model.isActivating || model.isClosing)
-                    Button(model.isClosing ? "Closing…" : "Close Server", role: .destructive) {
+                    Button(model.isClosing && !model.isRestarting ? "Closing…" : "Close Server", role: .destructive) {
                         Task { await model.closeServer() }
                     }
-                    .disabled(model.isChecking || model.isActivating || model.isClosing)
+                    .disabled(isBusy)
                 }
             }
             if let message = model.errorMessage {
