@@ -103,13 +103,21 @@ If macOS blocks the command, right-click it and select **Open**.
 The installer opens JasonApp for you when it finishes. To start it later, open
 **JasonApp** from Applications.
 
-1. Select **Server**.
-2. Click **Activate All Services**.
+Opening JasonApp starts the **core services** when they are not running:
+Redis and the JasonPython backend, which reads Firestore. File Transfer,
+Leaderboard, Gauntlet and the URL shortener work from that alone. Temporal
+and Kafka stay off; the features that need them (Workflows, Kafka messages)
+report that the service is not running.
 
-The app starts Redis, Temporal, the Temporal worker, and JasonPython. Use
-**Check Connection** to refresh their status and **Close Server** to stop them.
-While they run, the middle button reads **Restart Services**: it stops them
-and starts them again, which loads the backend checkout's current code.
+The middle button on the **Server** pane follows what is running:
+
+- **Activate All Services** while anything is down: starts Redis, Kafka,
+  Temporal, their workers, and the backend.
+- **Restart Services** once everything is up: stops them all and starts them
+  again, which loads the backend checkout's current code.
+
+Use **Check Connection** to refresh their status and **Close Server** to stop
+them.
 
 The backend normally uses `http://127.0.0.1:8000`. If that port is occupied,
 it tries ports `8088` and `8888` automatically.
@@ -121,7 +129,7 @@ Use this loop to try changes in either repository before pushing them.
 | Changed | Run | What it does |
 |---|---|---|
 | JasonUI | `./scripts/run_local.sh` (in `JasonUI`) | Builds the app from this checkout, uncommitted changes included, quits any running JasonApp, and opens the new build. |
-| JasonPython | **Restart Services** on the Server pane | Stops the backend and starts `JasonPython/scripts/run_local.sh` again, so the backend runs the checkout's current code. |
+| JasonPython | **Activate All Services** or **Restart Services** on the Server pane | Stops the backend and starts `JasonPython/scripts/run_local.sh` again, so the backend runs the checkout's current code. |
 | Both | Both, UI first | The backend keeps running while the app restarts, so restart it from the new app. |
 
 ```bash

@@ -71,7 +71,11 @@ struct ContentView: View {
                 .padding(24)
             }
         }
-        .task { await model.checkConnection() }
+        .task {
+            await model.checkConnection()
+            // Opening the app brings up the core services if they are down.
+            await model.startCoreServicesIfNeeded()
+        }
         .task { await updateManager.monitorForUpdates() }
     }
 
@@ -246,6 +250,12 @@ struct DashboardView: View {
                 TextField("IP Address", text: .constant(model.localIPAddress ?? "Not connected to a network"))
                     .textFieldStyle(.roundedBorder)
                 ServiceStatusRow(title: "Backend Server", state: model.backendState)
+                ServiceStatusRow(
+                    title: "Google Cloud / Firestore",
+                    state: model.googleCloudState,
+                    successLinkLabel: "Firestore Console",
+                    successDestination: model.client?.firestoreURL()
+                )
                 ServiceStatusRow(title: "Redis", state: model.redisState)
                 ServiceStatusRow(title: "Kafka", state: model.kafkaState)
                 ServiceStatusRow(
@@ -254,12 +264,6 @@ struct DashboardView: View {
                     successLinkLabel: "Temporal UI",
                     successDestination: model.client?.temporalUIURL()
                 )
-                ServiceStatusRow(
-                    title: "Google Cloud / Firestore",
-                    state: model.googleCloudState,
-                    successLinkLabel: "Firestore Console",
-                    successDestination: model.client?.firestoreURL()
-                )
                 HStack {
                     let isBusy = model.isChecking || model.isActivating || model.isClosing || model.isRestarting
                     Spacer()
@@ -267,15 +271,15 @@ struct DashboardView: View {
                         Task { await model.checkConnection() }
                     }
                     .disabled(isBusy)
-                    // While services run, starting again means restarting them,
-                    // which loads the backend checkout's current code.
-                    if model.backendState == .running() || model.isRestarting {
+                    // Anything down: start it all. Everything up: restarting
+                    // reloads the backend checkout's current code.
+                    if model.allServicesRunning || model.isRestarting {
                         Button(model.isRestarting ? "Restarting…" : "Restart Services") {
                             Task { await model.restartServices() }
                         }
                         .disabled(isBusy)
                     } else {
-                        Button(model.isActivating ? "Activating…" : "Activate All Services") {
+                        Button(model.isActivating ? "Starting…" : "Activate All Services") {
                             Task { await model.activateAllServices() }
                         }
                         .disabled(isBusy)

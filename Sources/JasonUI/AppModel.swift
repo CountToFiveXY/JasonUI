@@ -113,13 +113,40 @@ final class AppModel {
         googleCloudState = await googleCloudCheck
     }
 
+    /// True when the backend and every service it can use are running.
+    /// Google Cloud is left out: starting services cannot fix credentials.
+    var allServicesRunning: Bool {
+        [backendState, redisState, kafkaState, temporalState].allSatisfy {
+            if case .running = $0 { true } else { false }
+        }
+    }
+
+    /// Starts everything: Redis, Kafka, Temporal, their workers and the
+    /// backend. A running backend, such as the core one started at launch,
+    /// is stopped first so the full startup replaces it.
     func activateAllServices() async {
         if let client, (try? await client.health()) != nil {
-            await checkConnection()
-            return
+            await closeServer()
+            guard errorMessage == nil else { return }
         }
+        await launchServices(arguments: [], allowSelection: true)
+    }
 
-        guard let backendDirectory = await resolveBackendDirectory(allowSelection: true) else {
+    /// At launch, starts the core services, Redis and the backend, when a
+    /// local backend is not already running. Temporal and Kafka stay off
+    /// until Activate All Services.
+    func startCoreServicesIfNeeded() async {
+        guard !isActivating, !isClosing, backendState != .running(), isLocalServer else { return }
+        await launchServices(arguments: ["--core"], allowSelection: false)
+    }
+
+    private var isLocalServer: Bool {
+        guard let host = client?.baseURL.host?.lowercased() else { return false }
+        return ["127.0.0.1", "localhost", "::1"].contains(host)
+    }
+
+    private func launchServices(arguments: [String], allowSelection: Bool) async {
+        guard let backendDirectory = await resolveBackendDirectory(allowSelection: allowSelection) else {
             return
         }
         let startupScript = backendDirectory.appendingPathComponent("scripts/run_local.sh")
@@ -131,6 +158,7 @@ final class AppModel {
         if servicesProcess?.isRunning != true {
             let process = Process()
             process.executableURL = startupScript
+            process.arguments = arguments
             process.currentDirectoryURL = backendDirectory
 
             var environment = ProcessInfo.processInfo.environment
@@ -172,14 +200,11 @@ final class AppModel {
         }
     }
 
-    /// Stops the running services, then starts them again from the backend
-    /// checkout, so local backend changes are picked up. Activate alone
-    /// returns early while a healthy backend is already running.
+    /// Shown once everything runs: stops the services and starts them all
+    /// again, so the backend checkout's current code is loaded.
     func restartServices() async {
         isRestarting = true
         defer { isRestarting = false }
-        await closeServer()
-        guard errorMessage == nil else { return }
         await activateAllServices()
     }
 
