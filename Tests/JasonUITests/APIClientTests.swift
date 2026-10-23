@@ -17,12 +17,14 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/v1/file-transfer/start")
-            let body = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":8765,"url":"http://192.168.1.23:8765","files":[{"name":"report.pdf","size":48213}]}"#
+            let body = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":80,"host_name":"jason.local","url":"http://jason.local","ip_url":"http://192.168.1.23","files":[{"name":"report.pdf","size":48213}]}"#
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
         let status = try await client().startFileTransfer()
         #expect(status.running)
-        #expect(status.url == "http://192.168.1.23:8765")
+        #expect(status.hostName == "jason.local")
+        #expect(status.url == "http://jason.local")
+        #expect(status.ipURL == "http://192.168.1.23")
         #expect(status.files == [SharedFile(name: "report.pdf", size: 48213)])
     }
 
@@ -30,7 +32,7 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
             #expect(request.url?.path == "/v1/file-transfer")
-            let body = #"{"running":false,"folder":"/tmp/FileTransfer","port":null,"url":null,"files":[]}"#
+            let body = #"{"running":false,"folder":"/tmp/FileTransfer","port":null,"host_name":null,"url":null,"ip_url":null,"files":[]}"#
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
         let status = try await client().fileTransferStatus()

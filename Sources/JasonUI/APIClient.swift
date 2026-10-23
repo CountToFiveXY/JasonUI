@@ -173,8 +173,18 @@ struct FileTransferStatus: Decodable, Equatable {
     let running: Bool
     let folder: String
     let port: Int?
+    /// The shared .local name this Mac announced, when it owns it.
+    let hostName: String?
     let url: String?
+    /// The same page by IP address, for devices that cannot resolve .local names.
+    let ipURL: String?
     let files: [SharedFile]
+
+    enum CodingKeys: String, CodingKey {
+        case running, folder, port, url, files
+        case hostName = "host_name"
+        case ipURL = "ip_url"
+    }
 }
 
 struct RecognizedLine: Decodable, Equatable, Identifiable {
