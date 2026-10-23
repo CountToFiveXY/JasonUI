@@ -17,10 +17,15 @@ struct APIClientTests {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/v1/file-transfer/start")
-            let body = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":80,"host_name":"jason.local","url":"http://jason.local","ip_url":"http://192.168.1.23","files":[{"name":"report.pdf","size":48213}]}"#
+            let body = try #require(requestBodyData(request))
+            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Bool])
+            #expect(json == ["allow_uploads": true])
+            let body = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":80,"host_name":"jason.local","url":"http://jason.local","ip_url":"http://192.168.1.23","allow_uploads":true,"upload_code":"482913","files":[{"name":"report.pdf","size":48213}]}"#
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
-        let status = try await client().startFileTransfer()
+        let status = try await client().startFileTransfer(allowUploads: true)
+        #expect(status.allowUploads)
+        #expect(status.uploadCode == "482913")
         #expect(status.running)
         #expect(status.hostName == "jason.local")
         #expect(status.url == "http://jason.local")
@@ -39,6 +44,8 @@ struct APIClientTests {
         #expect(!status.running)
         #expect(status.port == nil)
         #expect(status.files.isEmpty)
+        // A backend from before uploads omits the field; treat it as off.
+        #expect(!status.allowUploads)
     }
 
     @Test func sendsShortenRequest() async throws {

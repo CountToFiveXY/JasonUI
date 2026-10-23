@@ -84,9 +84,31 @@ The installer opens JasonApp for you when it finishes. To start it later, open
 
 The app starts Redis, Temporal, the Temporal worker, and JasonPython. Use
 **Check Connection** to refresh their status and **Close Server** to stop them.
+While they run, the middle button reads **Restart Services**: it stops them
+and starts them again, which loads the backend checkout's current code.
 
 The backend normally uses `http://127.0.0.1:8000`. If that port is occupied,
 it tries ports `8088` and `8888` automatically.
+
+## Run your local changes
+
+Use this loop to try changes in either repository before pushing them.
+
+| Changed | Run | What it does |
+|---|---|---|
+| JasonUI | `./scripts/run_local.sh` (in `JasonUI`) | Builds the app from this checkout, uncommitted changes included, quits any running JasonApp, and opens the new build. |
+| JasonPython | **Restart Services** on the Server pane | Stops the backend and starts `JasonPython/scripts/run_local.sh` again, so the backend runs the checkout's current code. |
+| Both | Both, UI first | The backend keeps running while the app restarts, so restart it from the new app. |
+
+```bash
+cd ~/Workspace/JasonUI
+./scripts/run_local.sh
+```
+
+The local build runs from `.build/app-package/JasonApp.app`, and
+`/Applications/JasonApp.app` is left as it was. The backend does not reload
+on its own when its code changes; restart it after each backend change. The
+app finds the backend checkout next to JasonUI, or at `JASONPYTHON_PATH`.
 
 ## Update JasonApp
 

@@ -178,12 +178,20 @@ struct FileTransferStatus: Decodable, Equatable {
     let url: String?
     /// The same page by IP address, for devices that cannot resolve .local names.
     let ipURL: String?
+    /// Optional so a backend from before uploads still decodes, as uploads off.
+    private let uploadsAllowed: Bool?
+    /// The code devices enter before they can upload; nil while uploads are off.
+    let uploadCode: String?
     let files: [SharedFile]
+
+    var allowUploads: Bool { uploadsAllowed ?? false }
 
     enum CodingKeys: String, CodingKey {
         case running, folder, port, url, files
         case hostName = "host_name"
         case ipURL = "ip_url"
+        case uploadsAllowed = "allow_uploads"
+        case uploadCode = "upload_code"
     }
 }
 
@@ -402,8 +410,13 @@ struct APIClient: Sendable {
         try await request(path: "v1/file-transfer", method: "GET")
     }
 
-    func startFileTransfer() async throws -> FileTransferStatus {
-        try await request(path: "v1/file-transfer/start", method: "POST")
+    /// Starts sharing, or turns uploads on or off while already sharing.
+    func startFileTransfer(allowUploads: Bool = false) async throws -> FileTransferStatus {
+        try await request(
+            path: "v1/file-transfer/start",
+            method: "POST",
+            body: ["allow_uploads": allowUploads]
+        )
     }
 
     func stopFileTransfer() async throws -> FileTransferStatus {

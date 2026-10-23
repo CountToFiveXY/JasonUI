@@ -1,12 +1,13 @@
 import AppKit
-import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// Shares ~/Documents/JasonApp/FileTransfer through the JasonPython backend,
-/// so devices on the same network can download its files from a browser.
+/// so devices on the same network can download its files from a browser,
+/// and upload to it when the host allows.
 struct FileTransferView: View {
     @Environment(AppModel.self) private var model
     @State private var status: FileTransferStatus?
+    @State private var allowUploads = false
     @State private var isWorking = false
     @State private var didCopyAddress = false
     @State private var error: String?
@@ -25,44 +26,61 @@ struct FileTransferView: View {
                         Text("Devices on the same Wi-Fi or local network can download these files.")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Start Sharing") { Task { await perform { try await $0.startFileTransfer() } } }
+                        Button("Start Sharing") {
+                            Task { await perform { [allowUploads] in try await $0.startFileTransfer(allowUploads: allowUploads) } }
+                        }
                             .buttonStyle(.borderedProminent)
                             .disabled(isWorking)
                     }
                     if isWorking { ProgressView().controlSize(.small) }
                 }
+                Toggle("Allow devices to upload files", isOn: Binding(
+                    get: { allowUploads },
+                    set: { value in
+                        allowUploads = value
+                        // While sharing, apply the change right away.
+                        if status?.running == true {
+                            Task { await perform { try await $0.startFileTransfer(allowUploads: value) } }
+                        }
+                    }
+                ))
+                .disabled(isWorking)
+                if status?.running == true, let code = status?.uploadCode {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Upload code")
+                        Spacer()
+                        Text(code)
+                            .font(.system(.title, design: .monospaced).bold())
+                            .kerning(4)
+                            .textSelection(.enabled)
+                    }
+                    Text("Devices enter this code once before they can upload. Only share it with people you trust; a new code is issued each time uploads are turned on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if status?.running == true {
                     if let address = status?.url, let url = URL(string: address) {
-                        HStack(alignment: .top, spacing: 16) {
-                            if let code = QRCode.image(for: address) {
-                                Image(nsImage: code)
-                                    .interpolation(.none)
-                                    .resizable()
-                                    .frame(width: 132, height: 132)
-                                    .accessibilityLabel("QR code for \(address)")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(address)
+                                .font(.system(.title3, design: .monospaced))
+                                .textSelection(.enabled)
+                            Text(status?.hostName == nil
+                                 ? "Type this address in a browser on another device."
+                                 : "Type this address in a browser on any device. It stays the same whichever Mac is sharing.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                Button(didCopyAddress ? "Copied" : "Copy Address") {
+                                    NSPasteboard.general.clearContents()
+                                    didCopyAddress = NSPasteboard.general.setString(address, forType: .string)
+                                }
+                                Link("Open Download Page", destination: url)
                             }
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(address)
-                                    .font(.system(.title3, design: .monospaced))
-                                    .textSelection(.enabled)
-                                Text(status?.hostName == nil
-                                     ? "Scan the code or type this address on another device."
-                                     : "Scan the code or type this address on any device. It stays the same whichever Mac is sharing.")
+                            if status?.hostName != nil, let ipAddress = status?.ipURL {
+                                Text("If a device can't open it (some Android phones), use \(ipAddress)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                HStack {
-                                    Button(didCopyAddress ? "Copied" : "Copy Address") {
-                                        NSPasteboard.general.clearContents()
-                                        didCopyAddress = NSPasteboard.general.setString(address, forType: .string)
-                                    }
-                                    Link("Open Download Page", destination: url)
-                                }
-                                if status?.hostName != nil, let ipAddress = status?.ipURL {
-                                    Text("If a device can't open it (some Android phones), use \(ipAddress)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
-                                }
+                                    .textSelection(.enabled)
                             }
                         }
                     } else {
@@ -132,6 +150,8 @@ struct FileTransferView: View {
 
     private func apply(_ newStatus: FileTransferStatus) {
         if newStatus.url != status?.url { didCopyAddress = false }
+        // While sharing, the switch shows what the server is actually doing.
+        if newStatus.running { allowUploads = newStatus.allowUploads }
         status = newStatus
     }
 
@@ -139,18 +159,5 @@ struct FileTransferView: View {
         let folder = URL(fileURLWithPath: path, isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(folder)
-    }
-}
-
-enum QRCode {
-    /// A crisp QR code for the address; scale it with interpolation off.
-    static func image(for text: String) -> NSImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(text.utf8)
-        filter.correctionLevel = "M"
-        // Scale before rasterizing so every module is whole pixels and stays sharp.
-        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
-              let bitmap = CIContext().createCGImage(output, from: output.extent) else { return nil }
-        return NSImage(cgImage: bitmap, size: NSSize(width: bitmap.width, height: bitmap.height))
     }
 }
