@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import Observation
 
@@ -26,6 +27,8 @@ final class AppModel {
     var temporalState = ServiceState.unknown
     var googleCloudState = ServiceState.unknown
     var errorMessage: String?
+    /// This Mac's address on the local network, for other devices to reach it.
+    var localIPAddress = AppModel.currentLocalIPAddress()
 
     private static let serverKey = "serverAddress"
     private static let backendDirectoryKey = "backendDirectory"
@@ -51,6 +54,7 @@ final class AppModel {
     }
 
     func checkConnection() async {
+        localIPAddress = Self.currentLocalIPAddress()
         guard let client else {
             errorMessage = APIError.invalidBaseURL.localizedDescription
             health = nil
@@ -215,6 +219,35 @@ final class AppModel {
         } catch {
             return .unavailable(Self.googleCloudFailureDetail(for: error.localizedDescription))
         }
+    }
+
+    /// The IPv4 address of this Mac's Wi-Fi or Ethernet connection, if any.
+    nonisolated static func currentLocalIPAddress() -> String? {
+        var interfaces: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&interfaces) == 0 else { return nil }
+        defer { freeifaddrs(interfaces) }
+        var addresses: [(name: String, ip: String)] = []
+        var cursor = interfaces
+        while let interface = cursor {
+            defer { cursor = interface.pointee.ifa_next }
+            let item = interface.pointee
+            guard let address = item.ifa_addr,
+                  address.pointee.sa_family == UInt8(AF_INET),
+                  item.ifa_flags & UInt32(IFF_UP) != 0,
+                  item.ifa_flags & UInt32(IFF_RUNNING) != 0,
+                  item.ifa_flags & UInt32(IFF_LOOPBACK) == 0 else { continue }
+            let name = String(cString: item.ifa_name)
+            // macOS names Wi-Fi and Ethernet en*; bridges cover shared connections.
+            // VPN tunnels (utun*) are skipped because LAN devices cannot use them.
+            guard name.hasPrefix("en") || name.hasPrefix("bridge") else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(address, socklen_t(address.pointee.sa_len), &host,
+                              socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let ip = String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            // 169.254.x.x is a self-assigned address with no working network.
+            if !ip.hasPrefix("169.254.") { addresses.append((name, ip)) }
+        }
+        return addresses.sorted { $0.name < $1.name }.first?.ip
     }
 
     nonisolated static func googleCloudFailureDetail(for message: String) -> String {

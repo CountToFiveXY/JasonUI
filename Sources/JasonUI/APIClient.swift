@@ -162,6 +162,21 @@ struct GalaxyLeaderboardListResponse: Decodable, Equatable {
     let leaderboards: [GalaxyLeaderboard]
 }
 
+struct SharedFile: Decodable, Equatable, Identifiable {
+    let name: String
+    let size: Int64
+
+    var id: String { name }
+}
+
+struct FileTransferStatus: Decodable, Equatable {
+    let running: Bool
+    let folder: String
+    let port: Int?
+    let url: String?
+    let files: [SharedFile]
+}
+
 struct RecognizedLine: Decodable, Equatable, Identifiable {
     let text: String
     let confidence: Double
@@ -371,6 +386,18 @@ struct APIClient: Sendable {
         } catch {
             return false
         }
+    }
+
+    func fileTransferStatus() async throws -> FileTransferStatus {
+        try await request(path: "v1/file-transfer", method: "GET")
+    }
+
+    func startFileTransfer() async throws -> FileTransferStatus {
+        try await request(path: "v1/file-transfer/start", method: "POST")
+    }
+
+    func stopFileTransfer() async throws -> FileTransferStatus {
+        try await request(path: "v1/file-transfer/stop", method: "POST")
     }
 
     func shorten(url: String) async throws -> ShortenResponse {

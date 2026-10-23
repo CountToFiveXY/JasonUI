@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var selection: Feature = .dashboard
     @State private var updateManager = AppUpdateManager()
     @AppStorage("sidebarAsphaltExpanded") private var isAsphaltExpanded = true
+    @AppStorage("sidebarUtilitiesExpanded") private var isUtilitiesExpanded = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,6 +30,19 @@ struct ContentView: View {
                     sidebarRow(.workflows)
                     sidebarRow(.quickLink)
                     Spacer(minLength: 0)
+                    Divider()
+                        .padding(.horizontal, 10)
+                    DisclosureGroup(isExpanded: $isUtilitiesExpanded) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Feature.utilities) { sidebarRow($0, indented: true) }
+                        }
+                    } label: {
+                        Label("Utilities", systemImage: "wrench.and.screwdriver")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, 7)
+                    }
+                    .padding(.horizontal, 10)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(.vertical, 8)
@@ -47,6 +61,7 @@ struct ContentView: View {
                     case .dashboard: DashboardView()
                     case .ledger: LedgerView()
                     case .shortener: URLShortenerView()
+                    case .fileTransfer: FileTransferView()
                     case .leaderboard: LeaderboardView()
                     case .gauntlet: GauntletView()
                     case .workflows: WorkflowsView()
@@ -185,16 +200,19 @@ private struct GitHubFooter: View {
 }
 
 private enum Feature: String, CaseIterable, Identifiable {
-    case dashboard, ledger, shortener, leaderboard, gauntlet, workflows, quickLink
+    case dashboard, ledger, shortener, fileTransfer, leaderboard, gauntlet, workflows, quickLink
     var id: String { rawValue }
 
     /// The features grouped under the Asphalt Legends heading in the sidebar.
     static let asphaltLegends: [Feature] = [.leaderboard, .gauntlet]
+    /// The features grouped under the Utilities heading at the sidebar's bottom.
+    static let utilities: [Feature] = [.fileTransfer]
     var title: String {
         switch self {
         case .dashboard: "Server"
         case .ledger: "Ledger"
         case .shortener: "URL Shortener"
+        case .fileTransfer: "File Transfer"
         case .leaderboard: "Leaderboard"
         case .gauntlet: "Gauntlet"
         case .workflows: "Workflows"
@@ -206,6 +224,7 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .dashboard: "server.rack"
         case .ledger: "list.bullet.rectangle.portrait"
         case .shortener: "link"
+        case .fileTransfer: "arrow.down.doc"
         case .leaderboard: "trophy"
         case .gauntlet: "stopwatch"
         case .workflows: "point.3.connected.trianglepath.dotted"
@@ -222,6 +241,9 @@ struct DashboardView: View {
         Form {
             Section("Backend") {
                 TextField("Server URL", text: $model.serverAddress)
+                    .textFieldStyle(.roundedBorder)
+                // Read-only: shown in the same field style so it can be selected and copied.
+                TextField("IP Address", text: .constant(model.localIPAddress ?? "Not connected to a network"))
                     .textFieldStyle(.roundedBorder)
                 ServiceStatusRow(title: "Backend Server", state: model.backendState)
                 ServiceStatusRow(title: "Redis", state: model.redisState)

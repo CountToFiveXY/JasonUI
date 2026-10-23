@@ -13,6 +13,32 @@ struct APIClientTests {
         #expect(response == HealthResponse(status: "OK", redis: "connected", kafka: "connected"))
     }
 
+    @Test func startsFileTransferAndDecodesStatus() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/v1/file-transfer/start")
+            let body = #"{"running":true,"folder":"/Users/me/Documents/JasonApp/FileTransfer","port":8765,"url":"http://192.168.1.23:8765","files":[{"name":"report.pdf","size":48213}]}"#
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+        }
+        let status = try await client().startFileTransfer()
+        #expect(status.running)
+        #expect(status.url == "http://192.168.1.23:8765")
+        #expect(status.files == [SharedFile(name: "report.pdf", size: 48213)])
+    }
+
+    @Test func decodesStoppedFileTransferStatus() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "GET")
+            #expect(request.url?.path == "/v1/file-transfer")
+            let body = #"{"running":false,"folder":"/tmp/FileTransfer","port":null,"url":null,"files":[]}"#
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+        }
+        let status = try await client().fileTransferStatus()
+        #expect(!status.running)
+        #expect(status.port == nil)
+        #expect(status.files.isEmpty)
+    }
+
     @Test func sendsShortenRequest() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
