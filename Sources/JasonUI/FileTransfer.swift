@@ -82,9 +82,17 @@ struct FileTransferView: View {
             }
             if let status {
                 Section {
-                    if status.files.isEmpty {
+                    if status.files.isEmpty && status.folders.isEmpty {
                         Text("No files yet. Add files to the folder to share them.")
                             .foregroundStyle(.secondary)
+                    }
+                    ForEach(status.folders, id: \.self) { name in
+                        HStack {
+                            Image(systemName: "folder")
+                            Text(name).lineLimit(1)
+                            Spacer()
+                            Text("Folder").foregroundStyle(.secondary)
+                        }
                     }
                     ForEach(status.files) { file in
                         HStack {
@@ -97,7 +105,7 @@ struct FileTransferView: View {
                     }
                 } header: {
                     HStack {
-                        Text("\(status.files.count) shared files")
+                        Text(sharedSummary(status))
                         Spacer()
                         Button("Open Folder") { openFolder(status.folder) }
                     }
@@ -160,6 +168,11 @@ struct FileTransferView: View {
             requireCode = newStatus.requireCode
         }
         status = newStatus
+    }
+
+    private func sharedSummary(_ status: FileTransferStatus) -> String {
+        let files = "\(status.files.count) shared files"
+        return status.folders.isEmpty ? files : "\(status.folders.count) folders, \(files)"
     }
 
     private func openFolder(_ path: String) {

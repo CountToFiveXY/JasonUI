@@ -185,10 +185,14 @@ struct FileTransferStatus: Decodable, Equatable {
     private let codeRequired: Bool?
     /// The code devices enter to download or upload; nil unless it is required.
     let accessCode: String?
+    /// Optional so an older backend without folder support still decodes.
+    private let topFolders: [String]?
     let files: [SharedFile]
 
     var allowUploads: Bool { uploadsAllowed ?? false }
     var requireCode: Bool { codeRequired ?? false }
+    /// Folders directly inside the shared folder; devices browse into them.
+    var folders: [String] { topFolders ?? [] }
 
     enum CodingKeys: String, CodingKey {
         case running, folder, port, url, files
@@ -197,6 +201,7 @@ struct FileTransferStatus: Decodable, Equatable {
         case uploadsAllowed = "allow_uploads"
         case codeRequired = "require_code"
         case accessCode = "access_code"
+        case topFolders = "folders"
     }
 }
 
