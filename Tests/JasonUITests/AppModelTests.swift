@@ -198,8 +198,8 @@ struct InvoiceImageRendererTests {
         // The brand image is decoration. Rendering must not depend on finding
         // it — looking for it used to bring the app down.
         let records = [
-            ExpenseRecord(id: UUID(), purpose: "Track pass", amountInCents: 12_50, createdAt: Date()),
-            ExpenseRecord(id: UUID(), purpose: "Fuel", amountInCents: 4_099, createdAt: Date()),
+            ExpenseRecord(id: UUID().uuidString, purpose: "Track pass", amountInCents: 12_50, createdAt: Date()),
+            ExpenseRecord(id: UUID().uuidString, purpose: "Fuel", amountInCents: 4_099, createdAt: Date()),
         ]
 
         let image = InvoiceImageRenderer.makeImage(records: records)

@@ -4,6 +4,31 @@ import Testing
 
 @Suite(.serialized)
 struct APIClientTests {
+    @Test func ledgerRoundTripUsesDoubleAmountAndDescription() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/v1/ledger/expenses")
+            let body = try #require(requestBodyData(request))
+            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(json["amount"] as? Double == 12.34)
+            #expect(json["description"] as? String == "Coffee")
+            return (HTTPURLResponse(url: request.url!, statusCode: 201, httpVersion: nil, headerFields: nil)!, Data(#"{"id":"10-27-2026:12","amount":12.34,"description":"Coffee"}"#.utf8))
+        }
+        let record = try await client().createExpense(amount: Decimal(string: "12.34")!, description: "Coffee")
+        #expect(record.id == "10-27-2026:12")
+        #expect(record.amountInCents == 1234)
+        #expect(InvoiceImageRenderer.dateText(for: record.createdAt) == "2026-10-27")
+    }
+
+    @Test func ledgerDeleteAcceptsEmpty204Response() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "DELETE")
+            #expect(request.url?.path == "/v1/ledger/expenses/10-27-2026:12")
+            return (HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        try await client().deleteExpense(id: "10-27-2026:12")
+    }
+
     @Test func decodesHealthResponse() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.url?.path == "/health")

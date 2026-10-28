@@ -10,7 +10,7 @@ github_icon="$project_dir/Sources/JasonUI/Resources/GitHubMark.png"
 galaxy_brand="$project_dir/Sources/JasonUI/Resources/GalaxyArcherBrand.png"
 
 cd "$project_dir"
-swift build -c release
+"$project_dir/scripts/build_ui.sh" -c release
 
 rm -rf "$build_dir"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" "$iconset_dir"

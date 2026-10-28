@@ -137,6 +137,22 @@ cd ~/Workspace/JasonUI
 ./scripts/run_local.sh
 ```
 
+The script checks SwiftUI and Observation support with the selected Apple
+toolchain. It tries the default macOS SDK first, then other SDKs installed in
+the same developer directory if necessary. This also applies when packaging
+the app directly. macOS 14 or newer and Swift 6 or newer are required.
+It does not change the system's Xcode selection or install developer tools.
+
+To choose a specific SDK, use:
+
+```bash
+JASONUI_SWIFT_SDK="/path/to/MacOSX.sdk" ./scripts/run_local.sh
+```
+
+To use another installed Xcode, set `DEVELOPER_DIR` to that Xcode's
+`Contents/Developer` directory when running the script. If no compatible SDK
+is installed, the script reports the problem before closing the running app.
+
 The local build runs from `.build/app-package/JasonApp.app`, and
 `/Applications/JasonApp.app` is left as it was. The backend does not reload
 on its own when its code changes; restart it after each backend change. The
@@ -190,3 +206,18 @@ replace the app manually.
 - Frontend logs are stored at `~/Documents/JasonApp/frontend.log`.
 - Backend and service startup logs are stored at `~/Documents/JasonApp/backend.log`.
 - Keep `JasonUI` and `JasonPython` in the same parent folder.
+
+
+### Expense Ledger
+
+Ledger uses the configured JasonPython server for loading, adding, renaming, and
+removing expenses. Start/restart the backend with the matching Ledger API changes,
+then open Ledger or click Refresh. Bill images are still generated locally.
+
+Firestore is authoritative. The UI waits for successful saves and shows errors
+without discarding the input. Clear All deletes only the displayed records and
+reports partial failures. Refresh fetches changes made on other devices; there
+is no background or offline editing sync in this version.
+
+The previous `ledger.expenses` UserDefaults data is left intact as a local backup;
+it is not automatically uploaded or mixed into the remote list.

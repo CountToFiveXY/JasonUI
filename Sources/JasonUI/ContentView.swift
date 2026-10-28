@@ -59,7 +59,7 @@ struct ContentView: View {
                 Group {
                     switch selection {
                     case .dashboard: DashboardView()
-                    case .ledger: LedgerView()
+                    case .ledger: LedgerView().id(model.serverAddress)
                     case .shortener: URLShortenerView()
                     case .fileTransfer: FileTransferView()
                     case .leaderboard: LeaderboardView()

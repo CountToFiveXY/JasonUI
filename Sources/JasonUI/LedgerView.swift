@@ -1,137 +1,8 @@
 import AppKit
-import Foundation
-import Observation
 import SwiftUI
 
-struct ExpenseRecord: Codable, Identifiable, Equatable {
-    let id: UUID
-    let purpose: String
-    let amountInCents: Int64
-    let createdAt: Date
-}
-
-@MainActor
-@Observable
-final class LedgerStore {
-    nonisolated static let moneySymbol = "💰"
-
-    private(set) var records: [ExpenseRecord]
-
-    @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let storageKey: String
-
-    init(defaults: UserDefaults = .standard, storageKey: String = "ledger.expenses") {
-        self.defaults = defaults
-        self.storageKey = storageKey
-        records = Self.load(from: defaults, key: storageKey)
-    }
-
-    var totalInCents: Int64 {
-        records.reduce(0) { $0 + $1.amountInCents }
-    }
-
-    @discardableResult
-    func add(purpose: String, amountText: String, createdAt: Date = .now) -> Bool {
-        let cleanPurpose = purpose.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanPurpose.isEmpty,
-              let cents = Self.cents(from: amountText),
-              cents > 0 else { return false }
-
-        records.append(
-            ExpenseRecord(
-                id: UUID(),
-                purpose: cleanPurpose,
-                amountInCents: cents,
-                createdAt: createdAt
-            )
-        )
-        records.sort { $0.createdAt < $1.createdAt }
-        save()
-        return true
-    }
-
-    func clear() {
-        records.removeAll()
-        save()
-    }
-
-    @discardableResult
-    func updatePurpose(id: UUID, purpose: String) -> Bool {
-        let cleanPurpose = purpose.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanPurpose.isEmpty,
-              let index = records.firstIndex(where: { $0.id == id }) else { return false }
-        let existing = records[index]
-        records[index] = ExpenseRecord(
-            id: existing.id,
-            purpose: cleanPurpose,
-            amountInCents: existing.amountInCents,
-            createdAt: existing.createdAt
-        )
-        save()
-        return true
-    }
-
-    func delete(id: UUID) {
-        records.removeAll { $0.id == id }
-        save()
-    }
-
-    nonisolated static func cents(from text: String) -> Int64? {
-        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        value = value.replacingOccurrences(of: moneySymbol, with: "")
-        value = value.replacingOccurrences(of: Locale.current.currencySymbol ?? "$", with: "")
-        value = value.replacingOccurrences(of: ",", with: "")
-        guard let decimal = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")),
-              decimal > 0 else { return nil }
-
-        var source = decimal * 100
-        var rounded = Decimal()
-        NSDecimalRound(&rounded, &source, 0, .plain)
-        return NSDecimalNumber(decimal: rounded).int64Value
-    }
-
-    /// Keeps expense input monetary: digits, one decimal point, and two cents digits.
-    nonisolated static func sanitizedAmountInput(_ text: String) -> String {
-        var result = ""
-        var hasDecimalPoint = false
-        var fractionDigits = 0
-
-        for character in text {
-            if let digit = character.wholeNumberValue {
-                if hasDecimalPoint {
-                    guard fractionDigits < 2 else { continue }
-                    fractionDigits += 1
-                }
-                result.append(String(digit))
-            } else if character == ".", !hasDecimalPoint {
-                hasDecimalPoint = true
-                result.append(character)
-            }
-        }
-        return result
-    }
-
-    nonisolated static func formattedAmount(_ cents: Int64) -> String {
-        moneySymbol + (Decimal(cents) / 100).formatted(
-            .number.precision(.fractionLength(2))
-        )
-    }
-
-    private static func load(from defaults: UserDefaults, key: String) -> [ExpenseRecord] {
-        guard let data = defaults.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([ExpenseRecord].self, from: data) else {
-            return []
-        }
-        return decoded.sorted { $0.createdAt < $1.createdAt }
-    }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(records) else { return }
-        defaults.set(data, forKey: storageKey)
-    }
-}
-
 struct LedgerView: View {
+    @Environment(AppModel.self) private var model
     @State private var store = LedgerStore()
     @State private var purpose = ""
     @State private var amount = ""
@@ -144,6 +15,17 @@ struct LedgerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    if store.isBusy { ProgressView().controlSize(.small) }
+                    if let error = store.errorMessage {
+                        Text(error).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    Spacer()
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        Task { await store.load(using: model.client) }
+                    }
+                    .disabled(store.isBusy)
+                }
                 overview
                 entryCard
                 recordsCard
@@ -152,11 +34,15 @@ struct LedgerView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .navigationTitle("Expense Ledger")
+        .task { await store.load(using: model.client) }
+        .onChange(of: store.records) { _, _ in didCopyImage = false }
         .alert("Clear every expense?", isPresented: $showClearConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Clear All", role: .destructive) { store.clear() }
+            Button("Clear All", role: .destructive) {
+                Task { if await store.clear() { didCopyImage = false } }
+            }
         } message: {
-            Text("This permanently removes all \(store.records.count) records from this Mac.")
+            Text("This permanently removes the \(store.records.count) displayed records from Firestore on all devices.")
         }
         .alert("Could not create image", isPresented: imageErrorIsPresented) {
             Button("OK") { imageError = nil }
@@ -221,6 +107,7 @@ struct LedgerView: View {
                 }
             }
             .padding(8)
+            .disabled(store.isBusy || !store.hasLoaded)
         }
     }
 
@@ -242,11 +129,11 @@ struct LedgerView: View {
                             systemImage: didCopyImage ? "checkmark" : "printer"
                         )
                     }
-                    .disabled(store.records.isEmpty)
+                    .disabled(store.records.isEmpty || store.isBusy)
                     Button("Clear All", role: .destructive) {
                         showClearConfirmation = true
                     }
-                    .disabled(store.records.isEmpty)
+                    .disabled(store.records.isEmpty || store.isBusy)
                 }
                 .padding(8)
 
@@ -254,9 +141,9 @@ struct LedgerView: View {
 
                 if store.records.isEmpty {
                     ContentUnavailableView(
-                        "No expenses yet",
+                        store.hasLoaded ? "No expenses yet" : "Expenses not loaded",
                         systemImage: "tray",
-                        description: Text("Add your first expense above to start the ledger.")
+                        description: Text(store.hasLoaded ? "Add your first expense above to start the ledger." : "Connect to the backend and refresh to load your expenses.")
                     )
                     .frame(minHeight: 210)
                 } else {
@@ -266,7 +153,7 @@ struct LedgerView: View {
                         ExpenseRowView(
                             record: record,
                             onRename: { newPurpose in
-                                let didUpdate = store.updatePurpose(
+                                let didUpdate = await store.updatePurpose(
                                     id: record.id,
                                     purpose: newPurpose
                                 )
@@ -274,10 +161,12 @@ struct LedgerView: View {
                                 return didUpdate
                             },
                             onDelete: {
-                                store.delete(id: record.id)
-                                didCopyImage = false
+                                Task {
+                                    if await store.delete(id: record.id) { didCopyImage = false }
+                                }
                             }
                         )
+                        .disabled(store.isBusy)
                     }
                 }
             }
@@ -335,16 +224,19 @@ struct LedgerView: View {
     }
 
     private var canAdd: Bool {
-        !purpose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !store.isBusy && store.hasLoaded && !purpose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (LedgerStore.cents(from: amount) ?? 0) > 0
     }
 
     private func addExpense() {
-        guard store.add(purpose: purpose, amountText: amount) else { return }
-        purpose = ""
-        amount = ""
-        didCopyImage = false
-        focusedField = .purpose
+        guard canAdd else { return }
+        Task {
+            guard await store.add(purpose: purpose, amountText: amount) else { return }
+            purpose = ""
+            amount = ""
+            didCopyImage = false
+            focusedField = .purpose
+        }
     }
 
     private func formattedAmount(_ cents: Int64) -> String {
@@ -374,7 +266,7 @@ struct LedgerView: View {
 
 private struct ExpenseRowView: View {
     let record: ExpenseRecord
-    let onRename: (String) -> Bool
+    let onRename: (String) async -> Bool
     let onDelete: () -> Void
 
     @State private var isHovering = false
@@ -405,7 +297,7 @@ private struct ExpenseRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(record.createdAt, format: .iso8601.year().month().day())
+            Text(InvoiceImageRenderer.dateText(for: record.createdAt))
                 .foregroundStyle(.secondary)
                 .frame(width: 190, alignment: .leading)
 
@@ -474,8 +366,8 @@ private struct ExpenseRowView: View {
     }
 
     private func saveEdit() {
-        if onRename(draftPurpose) {
-            isEditing = false
+        Task {
+            if await onRename(draftPurpose) { isEditing = false }
         }
     }
 

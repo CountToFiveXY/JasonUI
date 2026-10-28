@@ -392,6 +392,32 @@ struct APIClient: Sendable {
         self.session = session
     }
 
+    func expenses() async throws -> [ExpenseRecord] {
+        let response: LedgerExpenseList = try await request(path: "v1/ledger/expenses", method: "GET")
+        return try response.expenses.map { try $0.record() }
+    }
+
+    func createExpense(amount: Decimal, description: String) async throws -> ExpenseRecord {
+        struct Body: Encodable { let amount: Decimal; let description: String }
+        let response: LedgerExpenseResponse = try await request(
+            path: "v1/ledger/expenses", method: "POST",
+            body: Body(amount: amount, description: description)
+        )
+        return try response.record()
+    }
+
+    func renameExpense(id: String, description: String) async throws -> ExpenseRecord {
+        let response: LedgerExpenseResponse = try await request(
+            path: "v1/ledger/expenses/\(id)", method: "PATCH",
+            body: ["description": description]
+        )
+        return try response.record()
+    }
+
+    func deleteExpense(id: String) async throws {
+        _ = try await dataRequest(path: "v1/ledger/expenses/\(id)", method: "DELETE")
+    }
+
     func health() async throws -> HealthResponse {
         try await request(path: "health", method: "GET")
     }
