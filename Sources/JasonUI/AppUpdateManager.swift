@@ -9,6 +9,7 @@ final class AppUpdateManager {
         case idle
         case checking
         case current
+        case waitingForBuild
         case updateAvailable
         case updating
     }
@@ -17,29 +18,42 @@ final class AppUpdateManager {
         let sha: String
     }
 
-    private struct GitHubRelease: Decodable {
-        struct Asset: Decodable {
+    struct GitHubRelease: Decodable, Sendable {
+        struct Asset: Decodable, Sendable {
             let name: String
             let browserDownloadURL: URL
+            let state: String?
+            let size: Int?
 
             enum CodingKeys: String, CodingKey {
-                case name
+                case name, state, size
                 case browserDownloadURL = "browser_download_url"
             }
         }
 
         let tagName: String
         let assets: [Asset]
+        let draft: Bool?
+        let prerelease: Bool?
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
-            case assets
+            case assets, draft, prerelease
         }
 
         /// The packaged app CI attached to this release, if it published one.
         var appArchive: Asset? {
-            assets.first { $0.name == AppUpdateManager.releaseAssetName }
+            guard draft != true, prerelease != true else { return nil }
+            return assets.first {
+                $0.name == AppUpdateManager.releaseAssetName
+                    && $0.state == "uploaded" && ($0.size ?? 0) > 0
+            }
         }
+    }
+
+    struct PublishedBuild: Sendable {
+        let release: GitHubRelease
+        let commit: String
     }
 
     private struct CommandFailure: LocalizedError, Sendable {
@@ -61,12 +75,14 @@ final class AppUpdateManager {
     }
 
     var state: State = .idle
-    @ObservationIgnored private var remoteCommit: String?
+    @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private var publishedBuild: PublishedBuild?
     @ObservationIgnored private var installedCommit: String?
     @ObservationIgnored private var backendRemoteCommit: String?
     @ObservationIgnored private var backendDirectory: URL?
     @ObservationIgnored private var frontendNeedsUpdate = false
     @ObservationIgnored private var backendNeedsUpdate = false
+    @ObservationIgnored private var completionPending = false
     var progress = 0.0
     var progressLabel = ""
     var errorMessage: String?
@@ -81,11 +97,16 @@ final class AppUpdateManager {
         string: "https://api.github.com/repos/CountToFiveXY/JasonUI/releases/latest"
     )!
     nonisolated static let releaseAssetName = "JasonApp.zip"
-    private static let installedAppURL = URL(fileURLWithPath: "/Applications/JasonApp.app")
+    nonisolated private static let installedAppURL = URL(fileURLWithPath: "/Applications/JasonApp.app")
     private static let checkInterval = Duration.seconds(15 * 60)
     private static let frontendDirectoryKey = "frontendDirectory"
     private static let backendDirectoryKey = "backendDirectory"
 
+    init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    var isWaitingForBuild: Bool { state == .waitingForBuild }
     var updateAvailable: Bool { state == .updateAvailable }
     var isChecking: Bool { state == .checking }
     var isUpdating: Bool { state == .updating }
@@ -104,7 +125,7 @@ final class AppUpdateManager {
         await checkForUpdates()
         while !Task.isCancelled {
             do {
-                try await Task.sleep(for: Self.checkInterval)
+                try await Task.sleep(for: isWaitingForBuild ? .seconds(60) : Self.checkInterval)
             } catch {
                 return
             }
@@ -120,31 +141,48 @@ final class AppUpdateManager {
         do {
             let backendDirectory = try resolveBackendDirectory()
             async let remoteCommitTask = fetchRemoteCommit(from: Self.frontendCommitURL)
+            async let publishedBuildTask = fetchPublishedBuild()
             async let installedCommitTask = installedSourceCommit()
             async let backendRemoteCommitTask = fetchRemoteCommit(from: Self.backendCommitURL)
             async let backendInstalledCommitTask = repositoryCommit(at: backendDirectory)
-            let (remoteCommit, installedCommit, backendRemoteCommit, backendInstalledCommit) =
+            let (remoteCommit, installedCommit, backendRemoteCommit, backendInstalledCommit, publishedBuild) =
                 try await (
                     remoteCommitTask,
                     installedCommitTask,
                     backendRemoteCommitTask,
-                    backendInstalledCommitTask
+                    backendInstalledCommitTask,
+                    publishedBuildTask
                 )
 
-            self.remoteCommit = remoteCommit
+            self.publishedBuild = publishedBuild
             self.installedCommit = installedCommit
             self.backendRemoteCommit = backendRemoteCommit
             self.backendDirectory = backendDirectory
-            frontendNeedsUpdate = remoteCommit != installedCommit
             backendNeedsUpdate = backendRemoteCommit != backendInstalledCommit
-            state = frontendNeedsUpdate || backendNeedsUpdate ? .updateAvailable : .current
+            state = Self.availability(
+                installed: installedCommit, remote: remoteCommit,
+                published: publishedBuild?.commit, backendNeedsUpdate: backendNeedsUpdate
+            )
+            frontendNeedsUpdate = state == .updateAvailable && remoteCommit != installedCommit
+            if completionPending && state == .current { state = .updateAvailable }
         } catch {
             state = .idle
             errorMessage = error.localizedDescription
         }
     }
 
-    func installUpdate() async {
+    /// Only the published build of the current main commit is installable.
+    /// While its archive is pending, hold the combined frontend/backend update.
+    nonisolated static func availability(
+        installed: String, remote: String, published: String?, backendNeedsUpdate: Bool
+    ) -> State {
+        if remote != installed {
+            return published == remote ? .updateAvailable : .waitingForBuild
+        }
+        return backendNeedsUpdate ? .updateAvailable : .current
+    }
+
+    func installUpdate(restartBackend: @MainActor () async throws -> Void) async {
         // The release build can finish while an old "Update" button is still
         // on screen. Refresh before downloading so a stale button becomes the
         // current-version label instead of trying to rebuild the same commit.
@@ -167,62 +205,64 @@ final class AppUpdateManager {
                 progress = 0.05
                 progressLabel = "Updating JasonPython…"
                 try await updateBackendCheckout()
-            }
-
-            guard frontendNeedsUpdate else {
-                progress = 0
-                progressLabel = ""
-                state = .current
                 backendNeedsUpdate = false
-                return
+                completionPending = true
             }
 
-            try fileManager.createDirectory(at: updateRoot, withIntermediateDirectories: true)
-            let packagedAppURL = try await preparePackagedApp(in: updateRoot)
+            if frontendNeedsUpdate {
+                try fileManager.createDirectory(at: updateRoot, withIntermediateDirectories: true)
+                let packagedAppURL = try await preparePackagedApp(in: updateRoot)
 
-            progress = 0.76
-            progressLabel = "Verifying…"
-            _ = try await Self.runCommand(
-                executable: "/usr/bin/codesign",
-                arguments: ["--verify", "--deep", "--strict", packagedAppURL.path]
-            )
+                progress = 0.76
+                progressLabel = "Verifying…"
+                _ = try await Self.runCommand(
+                    executable: "/usr/bin/codesign",
+                    arguments: ["--verify", "--deep", "--strict", packagedAppURL.path]
+                )
 
-            progress = 0.84
-            progressLabel = "Installing…"
-            _ = try await Self.runCommand(
-                executable: "/usr/bin/ditto",
-                arguments: [packagedAppURL.path, stagedAppURL.path]
-            )
-            _ = try await Self.runCommand(
-                executable: "/usr/bin/codesign",
-                arguments: ["--verify", "--deep", "--strict", stagedAppURL.path]
-            )
+                progress = 0.84
+                progressLabel = "Installing…"
+                _ = try await Self.runCommand(
+                    executable: "/usr/bin/ditto",
+                    arguments: [packagedAppURL.path, stagedAppURL.path]
+                )
+                _ = try await Self.runCommand(
+                    executable: "/usr/bin/codesign",
+                    arguments: ["--verify", "--deep", "--strict", stagedAppURL.path]
+                )
 
-            if fileManager.fileExists(atPath: Self.installedAppURL.path) {
-                let backupURL = updateRoot.appendingPathComponent("JasonApp.previous.app")
-                try fileManager.moveItem(at: Self.installedAppURL, to: backupURL)
-                oldAppBackupURL = backupURL
-            }
-
-            do {
-                try fileManager.moveItem(at: stagedAppURL, to: Self.installedAppURL)
-            } catch {
-                if let oldAppBackupURL {
-                    try? fileManager.moveItem(at: oldAppBackupURL, to: Self.installedAppURL)
+                if fileManager.fileExists(atPath: Self.installedAppURL.path) {
+                    let backupURL = updateRoot.appendingPathComponent("JasonApp.previous.app")
+                    try fileManager.moveItem(at: Self.installedAppURL, to: backupURL)
+                    oldAppBackupURL = backupURL
                 }
-                throw error
+
+                do {
+                    try fileManager.moveItem(at: stagedAppURL, to: Self.installedAppURL)
+                } catch {
+                    if let oldAppBackupURL {
+                        try? fileManager.moveItem(at: oldAppBackupURL, to: Self.installedAppURL)
+                    }
+                    throw error
+                }
+
             }
 
-            progress = 1.0
-            progressLabel = "Relaunching…"
-            try scheduleSingleInstanceRelaunch()
-            NSApplication.shared.terminate(nil)
+            completionPending = true
+            let appURL = Self.relaunchTarget(
+                frontendUpdated: frontendNeedsUpdate, runningAppURL: Bundle.main.bundleURL
+            )
+            try await finishUpdate(appURL: appURL, restartBackend: restartBackend) { url in
+                try self.scheduleSingleInstanceRelaunch(appURL: url)
+                NSApplication.shared.terminate(nil)
+            }
+            completionPending = false
         } catch {
             if fileManager.fileExists(atPath: stagedAppURL.path) {
                 try? fileManager.removeItem(at: stagedAppURL)
             }
-            if let oldAppBackupURL,
-               !fileManager.fileExists(atPath: Self.installedAppURL.path) {
+            if let oldAppBackupURL, fileManager.fileExists(atPath: oldAppBackupURL.path) {
+                try? fileManager.removeItem(at: Self.installedAppURL)
                 try? fileManager.moveItem(at: oldAppBackupURL, to: Self.installedAppURL)
             }
             try? fileManager.removeItem(at: updateRoot)
@@ -233,43 +273,42 @@ final class AppUpdateManager {
         }
     }
 
-    /// The app bundle to install: the build CI published, or one compiled here.
-    ///
-    /// Downloading is the normal path and needs nothing but the network, so a
-    /// Mac without Xcode or a checkout can still update. Compiling is kept as
-    /// a fallback for a machine that has the source but cannot reach a build —
-    /// no published release yet, or working offline.
+    /// The backend must be ready before the UI exits, including backend-only updates.
+    func finishUpdate(
+        appURL: URL,
+        restartBackend: @MainActor () async throws -> Void,
+        relaunch: @MainActor (URL) throws -> Void
+    ) async throws {
+        progress = 0.92
+        progressLabel = "Restarting server…"
+        try await restartBackend()
+        progress = 1.0
+        progressLabel = "Relaunching…"
+        try relaunch(appURL)
+    }
+
+    nonisolated static func relaunchTarget(frontendUpdated: Bool, runningAppURL: URL) -> URL {
+        // A backend-only update must reopen the running local build, not an older installed app.
+        frontendUpdated ? installedAppURL : runningAppURL
+    }
+
+    /// Install the published archive selected during the availability check.
     private func preparePackagedApp(in updateRoot: URL) async throws -> URL {
         progress = 0.10
         progressLabel = "Downloading…"
-        do {
-            return try await downloadPackagedApp(into: updateRoot)
-        } catch let downloadError {
-            guard let checkoutURL = try? await resolveFrontendDirectory(allowSelection: false) else {
-                throw downloadError
-            }
-            do {
-                return try await buildPackagedApp(from: checkoutURL)
-            } catch let buildError {
-                throw UpdatePreparationError(
-                    message: "Published update unavailable: \(downloadError.localizedDescription)\n\n"
-                        + "Local rebuild failed: \(buildError.localizedDescription)"
-                )
-            }
-        }
+        return try await downloadPackagedApp(into: updateRoot)
     }
 
     private func downloadPackagedApp(into updateRoot: URL) async throws -> URL {
-        let release = try await fetchLatestRelease()
-        guard let asset = release.appArchive else {
+        guard let publishedBuild, let asset = publishedBuild.release.appArchive else {
             throw UpdatePreparationError(
-                message: "Release \(release.tagName) has no \(Self.releaseAssetName) attached yet."
+                message: "The update is not published yet. Please check again shortly."
             )
         }
 
         var request = URLRequest(url: asset.browserDownloadURL)
         request.setValue("JasonApp/1.0", forHTTPHeaderField: "User-Agent")
-        let (temporaryURL, response) = try await URLSession.shared.download(for: request)
+        let (temporaryURL, response) = try await session.download(for: request)
         guard let response = response as? HTTPURLResponse,
               (200..<300).contains(response.statusCode) else {
             throw URLError(.badServerResponse)
@@ -297,56 +336,13 @@ final class AppUpdateManager {
             arguments: ["-dr", "com.apple.quarantine", appURL.path]
         )
 
-        // CI may not have finished building the newest commit yet, in which
-        // case the published build is the one already installed.
-        if let built = Self.sourceCommit(of: appURL), built == installedCommit {
+        guard Self.sourceCommit(of: appURL) == publishedBuild.commit,
+              publishedBuild.commit != installedCommit else {
             throw UpdatePreparationError(
-                message: "The newest published build is the one already installed. "
-                    + "CI may still be building the latest commit — try again shortly."
+                message: "The downloaded app does not match the published update. Please check again shortly."
             )
         }
         return appURL
-    }
-
-    private func buildPackagedApp(from checkoutURL: URL) async throws -> URL {
-        let changes = try await Self.runCommand(
-            executable: "/usr/bin/git",
-            arguments: ["status", "--porcelain"],
-            currentDirectory: checkoutURL
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard changes.isEmpty else {
-            throw UpdatePreparationError(
-                message: "JasonUI has local changes. Commit or discard them before updating."
-            )
-        }
-
-        progress = 0.20
-        progressLabel = "Updating source…"
-        _ = try await Self.runCommand(
-            executable: "/usr/bin/git",
-            arguments: ["pull", "--ff-only", "origin", "main"],
-            currentDirectory: checkoutURL
-        )
-
-        progress = 0.34
-        progressLabel = "Testing…"
-        let developerDirectory = try? await Self.runCommand(
-            executable: "/usr/bin/xcode-select",
-            arguments: ["-p"]
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try await Self.runCommand(
-            executable: "/usr/bin/swift",
-            arguments: Self.swiftTestArguments(developerDirectory: developerDirectory),
-            currentDirectory: checkoutURL
-        )
-
-        progress = 0.56
-        progressLabel = "Building…"
-        _ = try await Self.runCommand(
-            executable: checkoutURL.appendingPathComponent("scripts/package_app.sh").path,
-            currentDirectory: checkoutURL
-        )
-        return checkoutURL.appendingPathComponent(".build/app-package/JasonApp.app", isDirectory: true)
     }
 
     private func updateBackendCheckout() async throws {
@@ -382,35 +378,21 @@ final class AppUpdateManager {
         }
     }
 
-    /// Command Line Tools place Swift Testing outside SwiftPM's usual search
-    /// path. Full Xcode already works, but accepting the same optional path is
-    /// harmless and lets one updater implementation support both toolchains.
-    nonisolated static func swiftTestArguments(developerDirectory: String?) -> [String] {
-        var arguments = ["test"]
-        guard let developerDirectory,
-              !developerDirectory.isEmpty else { return arguments }
-
-        let frameworks = URL(fileURLWithPath: developerDirectory, isDirectory: true)
-            .appendingPathComponent("Library/Developer/Frameworks", isDirectory: true)
-        guard FileManager.default.fileExists(
-            atPath: frameworks.appendingPathComponent("Testing.framework").path
-        ) else { return arguments }
-
-        arguments += [
-            "-Xswiftc", "-F\(frameworks.path)",
-            "-Xlinker", "-F\(frameworks.path)",
-            "-Xlinker", "-rpath", "-Xlinker", frameworks.path,
-            "-Xlinker", "-rpath", "-Xlinker",
-            frameworks.deletingLastPathComponent().appendingPathComponent("usr/lib").path,
-        ]
-        return arguments
+    func fetchPublishedBuild() async throws -> PublishedBuild? {
+        guard let release = try await fetchLatestRelease(), release.appArchive != nil else { return nil }
+        // target_commitish can be the moving branch name; resolve the immutable tag instead.
+        let tagURL = Self.frontendCommitURL.deletingLastPathComponent()
+            .appendingPathComponent(release.tagName)
+        let commit = try await fetchRemoteCommit(from: tagURL)
+        return PublishedBuild(release: release, commit: commit)
     }
 
-    private func fetchLatestRelease() async throws -> GitHubRelease {
-        var request = URLRequest(url: Self.latestReleaseURL)
+    private func fetchLatestRelease() async throws -> GitHubRelease? {
+        var request = URLRequest(url: Self.latestReleaseURL, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue("JasonApp/1.0", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
+        if (response as? HTTPURLResponse)?.statusCode == 404 { return nil }
         guard let response = response as? HTTPURLResponse,
               (200..<300).contains(response.statusCode) else {
             throw UpdatePreparationError(
@@ -430,7 +412,10 @@ final class AppUpdateManager {
         return plist["JasonSourceCommit"] as? String
     }
 
-    private func scheduleSingleInstanceRelaunch() throws {
+    private func scheduleSingleInstanceRelaunch(appURL: URL) throws {
+        guard appURL.pathExtension == "app", FileManager.default.fileExists(atPath: appURL.path) else {
+            throw UpdatePreparationError(message: "Could not locate the running app to reopen. Start JasonApp using scripts/run_local.sh.")
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = [
@@ -448,7 +433,7 @@ final class AppUpdateManager {
             """,
             "JasonAppRelaunch",
             String(ProcessInfo.processInfo.processIdentifier),
-            Self.installedAppURL.path,
+            appURL.path,
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -456,10 +441,10 @@ final class AppUpdateManager {
     }
 
     private func fetchRemoteCommit(from url: URL) async throws -> String {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue("JasonApp/1.0", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse,
               (200..<300).contains(response.statusCode) else {
             throw URLError(.badServerResponse)

@@ -208,6 +208,41 @@ final class AppModel {
         await activateAllServices()
     }
 
+    /// Reload updated backend code and wait until it serves requests before relaunching the UI.
+    func restartBackendAfterUpdate() async throws {
+        guard isLocalServer else {
+            throw BackendRestartError(message: "Automatic restart requires a backend running on this Mac. Restart the remote backend on its host.")
+        }
+        guard !isActivating, !isClosing, !isRestarting else {
+            throw BackendRestartError(message: "Services are busy. Wait for the current operation, then try Update again.")
+        }
+        isRestarting = true
+        defer { isRestarting = false }
+
+        await checkConnection()
+        // Preserve core mode instead of starting optional services solely for an update.
+        let fullStartup: Bool
+        if case .running = kafkaState { fullStartup = true }
+        else if case .running = temporalState { fullStartup = true }
+        else { fullStartup = false }
+
+        await closeServer()
+        if let errorMessage { throw BackendRestartError(message: errorMessage) }
+        if let client, (try? await client.health()) != nil {
+            throw BackendRestartError(message: "The previous backend is still running. It could not be safely restarted; review the server log before retrying.")
+        }
+        await launchServices(arguments: fullStartup ? [] : ["--core"], allowSelection: false)
+        if let errorMessage { throw BackendRestartError(message: errorMessage) }
+        guard case .running = backendState else {
+            throw BackendRestartError(message: "The updated backend did not become ready. Review the server log and try Update again.")
+        }
+    }
+
+    private struct BackendRestartError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     func closeServer() async {
         isClosing = true
         errorMessage = nil

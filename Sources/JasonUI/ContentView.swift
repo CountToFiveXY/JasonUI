@@ -133,6 +133,7 @@ private struct PersistentHorizontalScroller: NSViewRepresentable {
 }
 
 private struct GitHubFooter: View {
+    @Environment(AppModel.self) private var model
     let updateManager: AppUpdateManager
     private let repositoriesURL = URL(string: "https://github.com/CountToFiveXY?tab=repositories")!
 
@@ -180,12 +181,21 @@ private struct GitHubFooter: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+        } else if updateManager.isWaitingForBuild {
+            Text("Building…")
+                .foregroundStyle(.secondary)
+                .help("New code is available. Waiting for its published installation package; checks again automatically.")
         } else if updateManager.updateAvailable {
             Button("Update") {
-                Task { await updateManager.installUpdate() }
+                Task {
+                    await updateManager.installUpdate {
+                        try await model.restartBackendAfterUpdate()
+                    }
+                }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .disabled(model.isActivating || model.isClosing || model.isRestarting)
         } else {
             Button {
                 Task { await updateManager.checkForUpdates() }

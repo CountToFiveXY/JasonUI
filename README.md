@@ -165,25 +165,35 @@ Every commit pushed to `main` is built and published by GitHub Actions
 `JasonApp.app`, and attaches it to a release as `JasonApp.zip`.
 
 JasonApp checks the remote JasonUI `main` branch when it opens and every 15
-minutes afterward. The version control at the bottom-left changes to an
-**Update** button when another machine has pushed a newer commit.
+minutes afterward. The bottom-left control shows **Update** only when the
+current main commit has a published release with a fully uploaded, nonempty
+`JasonApp.zip`. The release tag is resolved to its actual commit.
+While the package is pending, it shows a non-clickable **Building…** label and
+checks again every minute. Backend-only updates remain available when the
+frontend is current; combined updates wait until the frontend package is ready.
 
 Click **Update** to automatically:
 
 1. Download the published `JasonApp.zip` and unpack it.
 2. Verify its signature.
-3. Replace `/Applications/JasonApp.app` and restart it.
+3. Replace `/Applications/JasonApp.app` when a frontend update is available.
+4. Restart the local backend and wait until it responds successfully.
+5. Reopen the UI. A backend-only update reopens the currently running app;
+   it does not replace a local UI build with an older installed app.
+
+The server keeps core mode when optional services were off, or starts the full
+service set again when Kafka or Temporal was active. If restarting fails, the UI
+stays open with an error so you can retry. Automatic restart supports backends
+running on this Mac; remote servers must be restarted on their host.
 
 Because the app is downloaded rather than compiled, **a Mac that only runs
 JasonApp needs neither a Swift toolchain nor a copy of this repository** to
 stay up to date.
 
-If no build has been published yet — CI still running, or working offline —
-the update falls back to compiling from a local checkout, which is the older
-behaviour: confirm the repository is clean, fast-forward `origin/main`, run
-the tests, rebuild, and install. That fallback needs the Command Line Tools
-and a clean worktree; without a checkout the update reports why it could not
-download instead.
+Updates install the published archive selected during the availability check
+and verify its embedded source commit. Download failures are reported without
+falling back to building unpublished source. To run local changes, use
+`./scripts/run_local.sh` instead.
 
 ### Setting up another Mac
 
@@ -193,7 +203,7 @@ unzip it into `/Applications`, and open it. The Update button maintains it from
 then on.
 
 That Mac still needs the JasonPython repository and Homebrew to run the backend
-locally — **the Update button does not update the backend.** Alternatively,
+locally. The Update button also updates that checkout and restarts its services. Alternatively,
 point it at a backend running on another machine by changing the Server URL on
 the Server pane.
 

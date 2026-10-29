@@ -81,14 +81,14 @@ struct AppUpdateTests {
         let json = Data(#"""
         {"tag_name":"build-42","assets":[
           {"name":"notes.md","browser_download_url":"https://example.com/notes.md"},
-          {"name":"JasonApp.zip","browser_download_url":"https://example.com/JasonApp.zip"}
+          {"name":"JasonApp.zip","browser_download_url":"https://example.com/JasonApp.zip","state":"uploaded","size":1024}
         ]}
         """#.utf8)
 
-        let release = try JSONDecoder().decode(ReleaseFeedProbe.self, from: json)
+        let release = try JSONDecoder().decode(AppUpdateManager.GitHubRelease.self, from: json)
 
         #expect(release.tagName == "build-42")
-        let archive = try #require(release.assets.first { $0.name == AppUpdateManager.releaseAssetName })
+        let archive = try #require(release.appArchive)
         #expect(archive.browserDownloadURL.absoluteString == "https://example.com/JasonApp.zip")
     }
 
@@ -118,33 +118,6 @@ struct AppUpdateTests {
         #expect(AppUpdateManager.sourceCommit(of: missing) == nil)
     }
 
-    @Test func addsSwiftTestingSearchPathsForCommandLineTools() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("JasonApp-ToolchainTests-\(UUID().uuidString)")
-        let testingFramework = root
-            .appendingPathComponent("Library/Developer/Frameworks/Testing.framework")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(
-            at: testingFramework,
-            withIntermediateDirectories: true
-        )
-
-        let arguments = AppUpdateManager.swiftTestArguments(
-            developerDirectory: root.path
-        )
-        #expect(arguments.first == "test")
-        #expect(arguments.contains("-F\(testingFramework.deletingLastPathComponent().path)"))
-        #expect(arguments.contains(
-            root.appendingPathComponent("Library/Developer/usr/lib").path
-        ))
-    }
-
-    @Test func usesOrdinarySwiftTestArgumentsWithoutTestingFramework() {
-        #expect(
-            AppUpdateManager.swiftTestArguments(developerDirectory: "/nonexistent") == ["test"]
-        )
-    }
-
     @Test func findsBackendGitRepositoryForUpdates() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -168,27 +141,6 @@ struct AppUpdateTests {
             AppUpdateManager.validBackendDirectory(in: [root, backend])
                 == backend.standardizedFileURL.resolvingSymlinksInPath()
         )
-    }
-}
-
-/// Mirrors the release feed shape AppUpdateManager decodes, which is private.
-private struct ReleaseFeedProbe: Decodable {
-    struct Asset: Decodable {
-        let name: String
-        let browserDownloadURL: URL
-
-        enum CodingKeys: String, CodingKey {
-            case name
-            case browserDownloadURL = "browser_download_url"
-        }
-    }
-
-    let tagName: String
-    let assets: [Asset]
-
-    enum CodingKeys: String, CodingKey {
-        case tagName = "tag_name"
-        case assets
     }
 }
 
