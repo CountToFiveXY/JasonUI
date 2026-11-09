@@ -440,7 +440,7 @@ struct APIClient: Sendable {
     }
 
     /// Starts sharing, or changes the upload and code switches while sharing.
-    func startFileTransfer(allowUploads: Bool = false, requireCode: Bool = false) async throws -> FileTransferStatus {
+    func startFileTransfer(allowUploads: Bool = true, requireCode: Bool = false) async throws -> FileTransferStatus {
         try await request(
             path: "v1/file-transfer/start",
             method: "POST",

@@ -7,7 +7,7 @@ import SwiftUI
 struct FileTransferView: View {
     @Environment(AppModel.self) private var model
     @State private var status: FileTransferStatus?
-    @State private var allowUploads = false
+    @State private var allowUploads = true
     @State private var requireCode = false
     @State private var isWorking = false
     @State private var didCopyAddress = false
