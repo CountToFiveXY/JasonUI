@@ -205,9 +205,25 @@ struct FileTransferStatus: Decodable, Equatable {
     }
 }
 
+struct RecognizedTextBounds: Decodable, Equatable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+
+    var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
+}
+
 struct RecognizedLine: Decodable, Equatable, Identifiable {
     let text: String
     let confidence: Double
+    let bounds: RecognizedTextBounds?
+
+    init(text: String, confidence: Double, bounds: RecognizedTextBounds? = nil) {
+        self.text = text
+        self.confidence = confidence
+        self.bounds = bounds
+    }
 
     /// Lines can repeat, so position is the stable identity.
     var id: String { "\(text)#\(confidence)" }

@@ -1312,12 +1312,15 @@ struct GauntletView: View {
 
         do {
             guard let image else { return "Paste or drop an image first." }
-            let names = try await client.readText(image: image).lines.map(\.text)
-            guard !names.isEmpty else {
+            let recognized = try await client.readText(image: image)
+            guard !recognized.lines.isEmpty else {
                 error = nil
                 return "No text was found in that image."
             }
 
+            if trackCatalogue.isEmpty { trackCatalogue = try await client.tracks() }
+            let names = TrackNameRecognition.names(from: recognized.lines, catalogue: trackCatalogue)
+            guard !names.isEmpty else { return "No track names were found in that image." }
             let lookup = try await client.lookupTracks(names: names)
             lineup = Dictionary(
                 uniqueKeysWithValues: lookup.tracks.prefix(TrackLineupPicker.slots)
