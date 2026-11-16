@@ -349,7 +349,7 @@ final class AppUpdateManager {
         guard let backendDirectory else {
             throw UpdatePreparationError(
                 message: "Could not find the local JasonPython repository. "
-                    + "Run Install JasonApp.command again."
+                    + "Keep JasonPython next to JasonUI and try again."
             )
         }
 
@@ -414,7 +414,7 @@ final class AppUpdateManager {
 
     private func scheduleSingleInstanceRelaunch(appURL: URL) throws {
         guard appURL.pathExtension == "app", FileManager.default.fileExists(atPath: appURL.path) else {
-            throw UpdatePreparationError(message: "Could not locate the running app to reopen. Start JasonApp using scripts/run_local.sh.")
+            throw UpdatePreparationError(message: "Could not locate the running app to reopen. Start JasonApp using ./run_local.sh.")
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -517,7 +517,7 @@ final class AppUpdateManager {
         }
 
         throw UpdatePreparationError(
-            message: "Could not find the local JasonUI repository. Run Install JasonApp.command again."
+            message: "Could not find the local JasonUI repository. Keep it in ~/Workspace/JasonUI and try again."
         )
     }
 
@@ -545,7 +545,7 @@ final class AppUpdateManager {
         guard let directory = Self.validBackendDirectory(in: candidates) else {
             throw UpdatePreparationError(
                 message: "Could not find the local JasonPython repository. "
-                    + "Run Install JasonApp.command again."
+                    + "Keep JasonPython next to JasonUI and try again."
             )
         }
         UserDefaults.standard.set(directory.path, forKey: Self.backendDirectoryKey)

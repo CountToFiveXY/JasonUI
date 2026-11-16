@@ -4,7 +4,7 @@
 # the app's Server pane, which runs JasonPython/scripts/run_local.sh.
 set -euo pipefail
 
-project_dir=${0:A:h:h}
+project_dir=${0:A:h}
 app_dir="$project_dir/.build/app-package/JasonApp.app"
 bundle_id=$(plutil -extract CFBundleIdentifier raw "$project_dir/Resources/Info.plist")
 

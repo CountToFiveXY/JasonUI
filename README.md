@@ -84,24 +84,19 @@ automatically when the backend starts.
 
 ### Step 3: Install JasonApp on your Mac
 
-Open the `JasonUI` folder in Finder, then double-click:
-
-```text
-Install JasonApp.command
-```
-
-The installer tests and builds the project, then installs JasonApp at:
+Download `JasonApp.zip` from the
+[latest release](https://github.com/CountToFiveXY/JasonUI/releases/latest),
+unzip it, and move the app to:
 
 ```text
 /Applications/JasonApp.app
 ```
 
-If macOS blocks the command, right-click it and select **Open**.
+If macOS blocks the app the first time, right-click it and select **Open**.
 
 ### Step 4: Start the services
 
-The installer opens JasonApp for you when it finishes. To start it later, open
-**JasonApp** from Applications.
+Open **JasonApp** from Applications.
 
 Opening JasonApp starts the **core services** when they are not running:
 Redis and the JasonPython backend, which reads Firestore. File Transfer,
@@ -128,13 +123,13 @@ Use this loop to try changes in either repository before pushing them.
 
 | Changed | Run | What it does |
 |---|---|---|
-| JasonUI | `./scripts/run_local.sh` (in `JasonUI`) | Builds the app from this checkout, uncommitted changes included, quits any running JasonApp, and opens the new build. |
+| JasonUI | `./run_local.sh` (in `JasonUI`) | Builds the app from this checkout, uncommitted changes included, quits any running JasonApp, and opens the new build. |
 | JasonPython | **Activate All Services** or **Restart Services** on the Server pane | Stops the backend and starts `JasonPython/scripts/run_local.sh` again, so the backend runs the checkout's current code. |
 | Both | Both, UI first | The backend keeps running while the app restarts, so restart it from the new app. |
 
 ```bash
 cd ~/Workspace/JasonUI
-./scripts/run_local.sh
+./run_local.sh
 ```
 
 The script checks SwiftUI and Observation support with the selected Apple
@@ -146,7 +141,7 @@ It does not change the system's Xcode selection or install developer tools.
 To choose a specific SDK, use:
 
 ```bash
-JASONUI_SWIFT_SDK="/path/to/MacOSX.sdk" ./scripts/run_local.sh
+JASONUI_SWIFT_SDK="/path/to/MacOSX.sdk" ./run_local.sh
 ```
 
 To use another installed Xcode, set `DEVELOPER_DIR` to that Xcode's
@@ -193,7 +188,7 @@ stay up to date.
 Updates install the published archive selected during the availability check
 and verify its embedded source commit. Download failures are reported without
 falling back to building unpublished source. To run local changes, use
-`./scripts/run_local.sh` instead.
+`./run_local.sh` instead.
 
 ### Setting up another Mac
 
@@ -207,12 +202,9 @@ locally. The Update button also updates that checkout and restarts its services.
 point it at a backend running on another machine by changing the Server URL on
 the Server pane.
 
-You can also double-click `Install JasonApp.command` at any time to rebuild and
-replace the app manually.
-
 ## Troubleshooting
 
-- App installation errors remain visible in the installer Terminal window.
+- Local build errors remain visible in the Terminal running `./run_local.sh`.
 - Frontend logs are stored at `~/Documents/JasonApp/frontend.log`.
 - Backend and service startup logs are stored at `~/Documents/JasonApp/backend.log`.
 - Keep `JasonUI` and `JasonPython` in the same parent folder.
