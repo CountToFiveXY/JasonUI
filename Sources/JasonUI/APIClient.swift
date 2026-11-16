@@ -92,6 +92,40 @@ struct KafkaSchedulingResponse: Decodable, Equatable {
     }
 }
 
+enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
+    case reset = "RESET"
+    case refillAds = "REFILL_ADS"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .reset: "Reset"
+        case .refillAds: "Refilling"
+        }
+    }
+
+    var confirmationMessage: String {
+        switch self {
+        case .reset:
+            "This will send a reset task to the Asphalt worker."
+        case .refillAds:
+            "This will send a refill ads task to the Asphalt worker."
+        }
+    }
+}
+
+struct AsphaltTaskResponse: Decodable, Equatable {
+    let type: AsphaltTaskType
+    let topic: String
+    let messageID: String
+
+    enum CodingKeys: String, CodingKey {
+        case type, topic
+        case messageID = "message_id"
+    }
+}
+
 struct ShortenResponse: Decodable, Equatable {
     let shortUrl: String
 }
@@ -500,6 +534,14 @@ struct APIClient: Sendable {
             body: KafkaSchedulingMessageRequest(
                 detailedPayload: KafkaSchedulingPayload(action: "START")
             )
+        )
+    }
+
+    func sendAsphaltTask(_ type: AsphaltTaskType) async throws -> AsphaltTaskResponse {
+        try await request(
+            path: "v1/asphalt-tasks",
+            method: "POST",
+            body: ["type": type.rawValue]
         )
     }
 

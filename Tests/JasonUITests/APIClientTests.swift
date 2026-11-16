@@ -203,6 +203,40 @@ struct APIClientTests {
         #expect(response.offset == 9)
     }
 
+    @Test func sendsAsphaltTaskAndDecodesPublishDetails() async throws {
+        MockURLProtocol.handler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/v1/asphalt-tasks")
+            let body = try #require(requestBodyData(request))
+            let json = try #require(
+                JSONSerialization.jsonObject(with: body) as? [String: String]
+            )
+            #expect(json == ["type": "REFILL_ADS"])
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 202,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let data = Data(
+                #"{"type":"REFILL_ADS","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-123"}"#.utf8
+            )
+            return (response, data)
+        }
+
+        let response = try await client().sendAsphaltTask(.refillAds)
+
+        #expect(response.type == .refillAds)
+        #expect(response.topic == "projects/jasonapp-xm0830/topics/asphalt_legend_topic")
+        #expect(response.messageID == "message-123")
+    }
+
+    @Test func exposesResetAndRefillingAsTheAsphaltTaskActions() {
+        #expect(AsphaltTaskType.allCases == [.reset, .refillAds])
+        #expect(AsphaltTaskType.reset.title == "Reset")
+        #expect(AsphaltTaskType.refillAds.title == "Refilling")
+    }
+
     @Test func buildsFirestoreMapURL() {
         let url = client().firestoreMapURL(mapID: "new-york")
         #expect(
