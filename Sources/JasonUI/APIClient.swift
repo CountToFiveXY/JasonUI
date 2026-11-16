@@ -95,6 +95,7 @@ struct KafkaSchedulingResponse: Decodable, Equatable {
 enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
     case reset = "RESET"
     case refillAds = "REFILL_ADS"
+    case startGame = "START_GAME"
 
     var id: String { rawValue }
 
@@ -102,6 +103,7 @@ enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
         switch self {
         case .reset: "Reset"
         case .refillAds: "Refill"
+        case .startGame: "Start"
         }
     }
 
@@ -111,6 +113,8 @@ enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
             "This will send a reset task to the Asphalt worker."
         case .refillAds:
             "This will send a refill ads task to the Asphalt worker."
+        case .startGame:
+            "This will start Asphalt Legends on the Windows PC."
         }
     }
 }

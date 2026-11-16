@@ -257,10 +257,36 @@ struct APIClientTests {
         _ = try await client().sendAsphaltTask(.reset)
     }
 
-    @Test func exposesResetAndRefillAsTheAsphaltTaskActions() {
-        #expect(AsphaltTaskType.allCases == [.reset, .refillAds])
+    @Test func sendsStartGameWithoutARepeatField() async throws {
+        MockURLProtocol.handler = { request in
+            let body = try #require(requestBodyData(request))
+            let json = try #require(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            #expect(json["type"] as? String == "START_GAME")
+            #expect(json["repeat"] == nil)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 202,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (
+                response,
+                Data(
+                    #"{"type":"START_GAME","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-125"}"#.utf8
+                )
+            )
+        }
+
+        _ = try await client().sendAsphaltTask(.startGame)
+    }
+
+    @Test func exposesTheAsphaltTaskActions() {
+        #expect(AsphaltTaskType.allCases == [.reset, .refillAds, .startGame])
         #expect(AsphaltTaskType.reset.title == "Reset")
         #expect(AsphaltTaskType.refillAds.title == "Refill")
+        #expect(AsphaltTaskType.startGame.title == "Start")
     }
 
     @Test func buildsFirestoreMapURL() {

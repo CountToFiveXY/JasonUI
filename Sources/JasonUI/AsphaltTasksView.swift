@@ -17,12 +17,13 @@ struct AsphaltTasksView: View {
         Form {
             Section("Task") {
                 taskRow(
-                    .reset,
-                    annotation: "Reset AL to restore ad count to 20"
-                )
-                taskRow(
                     .refillAds,
                     showsRepeatInput: true
+                )
+                taskRow(.startGame)
+                taskRow(
+                    .reset,
+                    annotation: "Reset AL to restore ad count to 20"
                 )
                 if isSending {
                     HStack(spacing: 8) {
