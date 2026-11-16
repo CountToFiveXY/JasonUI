@@ -8,9 +8,8 @@ struct AsphaltTasksView: View {
     @State private var response: AsphaltTaskResponse?
     @State private var responseIsExpanded = false
     @State private var errorMessage: String?
-    @State private var refillRepeat = 8
-    @State private var refillRepeatDraft = ""
-    @State private var isEditingRefillRepeat = false
+    @State private var refillRepeat = ""
+    @State private var isHoveringRefillRepeat = false
     @State private var pendingRepeat = 8
     @FocusState private var isRefillRepeatFocused: Bool
 
@@ -82,11 +81,13 @@ struct AsphaltTasksView: View {
         HStack {
             Button(task.title) {
                 if task == .refillAds {
-                    pendingRepeat = commitRefillRepeat()
+                    pendingRepeat = refillRepeatValue
                 }
                 pendingTask = task
                 showConfirmation = true
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .disabled(isSending)
 
             Spacer()
@@ -105,51 +106,36 @@ struct AsphaltTasksView: View {
 
     @ViewBuilder
     private var refillRepeatControl: some View {
-        if isEditingRefillRepeat {
-            TextField("8", text: $refillRepeatDraft)
-                .frame(width: 48)
+        ZStack(alignment: .trailing) {
+            TextField("", text: $refillRepeat)
                 .multilineTextAlignment(.trailing)
-                .textFieldStyle(.roundedBorder)
                 .focused($isRefillRepeatFocused)
                 .accessibilityLabel("Refill repeat count")
-                .onChange(of: refillRepeatDraft) { _, value in
-                    refillRepeatDraft = sanitizedRepeatDraft(value)
+                .onChange(of: refillRepeat) { _, value in
+                    refillRepeat = sanitizedRepeat(value)
                 }
-                .onSubmit { _ = commitRefillRepeat() }
-                .onChange(of: isRefillRepeatFocused) { _, focused in
-                    if !focused && isEditingRefillRepeat {
-                        _ = commitRefillRepeat()
-                    }
-                }
-                .onAppear { isRefillRepeatFocused = true }
                 .disabled(isSending)
-        } else {
-            Text(String(refillRepeat))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    refillRepeatDraft = ""
-                    isEditingRefillRepeat = true
-                }
-                .help("Click to change the refill repeat count")
-                .accessibilityLabel("Refill repeat count: \(refillRepeat). Click to edit.")
+
+            if refillRepeat.isEmpty && !isRefillRepeatFocused {
+                Text("8")
+                    .foregroundStyle(isHoveringRefillRepeat ? Color.accentColor : .secondary)
+                    .padding(.horizontal, 6)
+                    .contentShape(Rectangle())
+                    .onTapGesture { isRefillRepeatFocused = true }
+                    .onHover { isHoveringRefillRepeat = $0 }
+            }
         }
+        .frame(width: 48)
+        .help("Repeat count; defaults to 8")
     }
 
-    private func sanitizedRepeatDraft(_ value: String) -> String {
+    private func sanitizedRepeat(_ value: String) -> String {
         let digits = String(value.filter(\.isNumber).prefix(2))
         return Int(digits) == 0 ? "" : digits
     }
 
-    @discardableResult
-    private func commitRefillRepeat() -> Int {
-        let value = Int(refillRepeatDraft).flatMap { (1...99).contains($0) ? $0 : nil } ?? 8
-        refillRepeat = value
-        refillRepeatDraft = String(value)
-        isEditingRefillRepeat = false
-        isRefillRepeatFocused = false
-        return value
+    private var refillRepeatValue: Int {
+        Int(refillRepeat).flatMap { (1...99).contains($0) ? $0 : nil } ?? 8
     }
 
     @MainActor
