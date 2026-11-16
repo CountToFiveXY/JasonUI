@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Shares ~/Documents/JasonApp/FileTransfer through the JasonPython backend,
+/// Shares ~/JasonApp/FileTransfer through the JasonPython backend,
 /// so devices on the same network can download its files from a browser,
 /// and upload to it when the host allows.
 struct FileTransferView: View {

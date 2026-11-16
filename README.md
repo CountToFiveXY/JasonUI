@@ -205,8 +205,9 @@ the Server pane.
 ## Troubleshooting
 
 - Local build errors remain visible in the Terminal running `./run_local.sh`.
-- Frontend logs are stored at `~/Documents/JasonApp/frontend.log`.
-- Backend and service startup logs are stored at `~/Documents/JasonApp/backend.log`.
+- Frontend logs are stored at `~/JasonApp/frontend.log`.
+- Backend and service startup logs are stored at `~/JasonApp/backend.log`.
+- File Transfer shares `~/JasonApp/FileTransfer` by default.
 - Keep `JasonUI` and `JasonPython` in the same parent folder.
 
 

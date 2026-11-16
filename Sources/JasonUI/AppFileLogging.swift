@@ -4,7 +4,7 @@ import Foundation
 enum AppFileLogging {
     static var directoryURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/JasonApp", isDirectory: true)
+            .appendingPathComponent("JasonApp", isDirectory: true)
     }
 
     static var frontendLogURL: URL {

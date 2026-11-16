@@ -3,9 +3,9 @@ import Testing
 @testable import JasonUI
 
 struct AppModelTests {
-    @Test func storesLogsInTheDocumentsFolder() {
+    @Test func storesLogsInTheJasonAppFolder() {
         let expectedDirectory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/JasonApp", isDirectory: true)
+            .appendingPathComponent("JasonApp", isDirectory: true)
 
         #expect(AppFileLogging.directoryURL == expectedDirectory)
         #expect(AppFileLogging.frontendLogURL.lastPathComponent == "frontend.log")
