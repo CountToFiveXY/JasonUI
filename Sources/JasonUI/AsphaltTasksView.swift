@@ -12,8 +12,15 @@ struct AsphaltTasksView: View {
     var body: some View {
         Form {
             Section("Task") {
-                taskButton(.reset, role: .destructive)
-                taskButton(.refillAds)
+                taskRow(
+                    .reset,
+                    note: "💡 Reset Asphalt game on the Windows PC so the ad refill count is restored to 20.",
+                    role: .destructive
+                )
+                taskRow(
+                    .refillAds,
+                    note: "💡 Refill 8 ads."
+                )
                 if isSending {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -59,18 +66,25 @@ struct AsphaltTasksView: View {
     }
 
     @ViewBuilder
-    private func taskButton(
+    private func taskRow(
         _ task: AsphaltTaskType,
+        note: String,
         role: ButtonRole? = nil
     ) -> some View {
-        Button(task.title, role: role) {
-            pendingTask = task
-            showConfirmation = true
+        HStack(spacing: 12) {
+            Button(task.title, role: role) {
+                pendingTask = task
+                showConfirmation = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(isSending)
+
+            Text(note)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .disabled(isSending)
     }
 
     @MainActor
