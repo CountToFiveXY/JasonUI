@@ -64,6 +64,7 @@ struct ContentView: View {
                     case .fileTransfer: FileTransferView()
                     case .leaderboard: LeaderboardView()
                     case .gauntlet: GauntletView()
+                    case .asphaltTasks: AsphaltTasksView()
                     case .workflows: WorkflowsView()
                     case .quickLink: QuickLinkView()
                     }
@@ -214,11 +215,11 @@ private struct GitHubFooter: View {
 }
 
 private enum Feature: String, CaseIterable, Identifiable {
-    case dashboard, ledger, shortener, fileTransfer, leaderboard, gauntlet, workflows, quickLink
+    case dashboard, ledger, shortener, fileTransfer, leaderboard, gauntlet, asphaltTasks, workflows, quickLink
     var id: String { rawValue }
 
     /// The features grouped under the Asphalt Legends heading in the sidebar.
-    static let asphaltLegends: [Feature] = [.leaderboard, .gauntlet]
+    static let asphaltLegends: [Feature] = [.leaderboard, .gauntlet, .asphaltTasks]
     /// The features grouped under the Utilities heading at the sidebar's bottom.
     static let utilities: [Feature] = [.fileTransfer]
     var title: String {
@@ -229,6 +230,7 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .fileTransfer: "File Transfer"
         case .leaderboard: "Leaderboard"
         case .gauntlet: "Gauntlet"
+        case .asphaltTasks: "Task"
         case .workflows: "Workflows"
         case .quickLink: "Quick Links"
         }
@@ -241,6 +243,7 @@ private enum Feature: String, CaseIterable, Identifiable {
         case .fileTransfer: "arrow.down.doc"
         case .leaderboard: "trophy"
         case .gauntlet: "stopwatch"
+        case .asphaltTasks: "paperplane"
         case .workflows: "point.3.connected.trianglepath.dotted"
         case .quickLink: "link.circle"
         }
