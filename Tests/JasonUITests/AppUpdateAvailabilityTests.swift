@@ -20,6 +20,26 @@ struct AppUpdateAvailabilityTests {
         ) == .updateAvailable)
     }
 
+    @Test func localDevelopmentBuildIgnoresPublishedFrontendButStillUpdatesBackend() {
+        #expect(AppUpdateManager.availability(
+            installed: "local", published: "published", frontendUpdatesEnabled: false,
+            backendNeedsUpdate: false
+        ) == .current)
+        #expect(AppUpdateManager.availability(
+            installed: "local", published: "published", frontendUpdatesEnabled: false,
+            backendNeedsUpdate: true
+        ) == .updateAvailable)
+    }
+
+    @Test func onlyInstalledApplicationEnablesFrontendReplacement() {
+        #expect(AppUpdateManager.frontendUpdatesEnabled(
+            runningAppURL: URL(fileURLWithPath: "/Applications/JasonApp.app")
+        ))
+        #expect(!AppUpdateManager.frontendUpdatesEnabled(
+            runningAppURL: URL(fileURLWithPath: "/tmp/JasonUI/.build/app-package/JasonApp.app")
+        ))
+    }
+
     @Test func usesImmutableReleaseTargetWithoutACommitRequest() async throws {
         ReleaseURLProtocol.handler = { request in
             #expect(request.url?.path == "/repos/CountToFiveXY/JasonUI/releases/latest")

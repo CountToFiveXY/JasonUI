@@ -159,11 +159,13 @@ Every commit pushed to `main` is built and published by GitHub Actions
 (`.github/workflows/release.yml`), which runs the tests, packages
 `JasonApp.app`, and attaches it to a release as `JasonApp.zip`.
 
-JasonApp checks the latest published JasonUI release when it opens and every 15
+JasonApp checks the latest published JasonUI release when it opens and every 30
 minutes afterward. The bottom-left control shows **Update** when that release
 contains a fully uploaded, nonempty `JasonApp.zip` built from a different source
 commit. The release's immutable target commit identifies the packaged build.
 Backend-only updates remain available when the frontend is current.
+Release-based frontend replacement is enabled only for the installed app at
+`/Applications/JasonApp.app`; local `.build` development runs are left intact.
 
 Click **Update** to automatically:
 

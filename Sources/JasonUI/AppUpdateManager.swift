@@ -96,7 +96,7 @@ final class AppUpdateManager {
     )!
     nonisolated static let releaseAssetName = "JasonApp.zip"
     nonisolated private static let installedAppURL = URL(fileURLWithPath: "/Applications/JasonApp.app")
-    private static let checkInterval = Duration.seconds(15 * 60)
+    private static let checkInterval = Duration.seconds(30 * 60)
     private static let frontendDirectoryKey = "frontendDirectory"
     private static let backendDirectoryKey = "backendDirectory"
 
@@ -154,11 +154,16 @@ final class AppUpdateManager {
             self.backendRemoteCommit = backendRemoteCommit
             self.backendDirectory = backendDirectory
             backendNeedsUpdate = backendRemoteCommit != backendInstalledCommit
+            let frontendUpdatesEnabled = Self.frontendUpdatesEnabled(
+                runningAppURL: Bundle.main.bundleURL
+            )
             state = Self.availability(
                 installed: installedCommit, published: publishedBuild?.commit,
+                frontendUpdatesEnabled: frontendUpdatesEnabled,
                 backendNeedsUpdate: backendNeedsUpdate
             )
-            frontendNeedsUpdate = publishedBuild?.commit != nil
+            frontendNeedsUpdate = frontendUpdatesEnabled
+                && publishedBuild?.commit != nil
                 && publishedBuild?.commit != installedCommit
             if completionPending && state == .current { state = .updateAvailable }
         } catch {
@@ -169,10 +174,18 @@ final class AppUpdateManager {
 
     /// The newest published archive is the source of truth for frontend updates.
     nonisolated static func availability(
-        installed: String, published: String?, backendNeedsUpdate: Bool
+        installed: String, published: String?, frontendUpdatesEnabled: Bool = true,
+        backendNeedsUpdate: Bool
     ) -> State {
-        if let published, published != installed { return .updateAvailable }
+        if frontendUpdatesEnabled, let published, published != installed {
+            return .updateAvailable
+        }
         return backendNeedsUpdate ? .updateAvailable : .current
+    }
+
+    nonisolated static func frontendUpdatesEnabled(runningAppURL: URL) -> Bool {
+        runningAppURL.standardizedFileURL.resolvingSymlinksInPath()
+            == installedAppURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     func installUpdate(restartBackend: @MainActor () async throws -> Void) async {
@@ -194,14 +207,8 @@ final class AppUpdateManager {
         var oldAppBackupURL: URL?
 
         do {
-            if backendNeedsUpdate {
-                progress = 0.05
-                progressLabel = "Updating JasonPython…"
-                try await updateBackendCheckout()
-                backendNeedsUpdate = false
-                completionPending = true
-            }
-
+            // Prepare and verify the complete frontend package before changing
+            // either the backend checkout or the installed application.
             if frontendNeedsUpdate {
                 try fileManager.createDirectory(at: updateRoot, withIntermediateDirectories: true)
                 let packagedAppURL = try await preparePackagedApp(in: updateRoot)
@@ -213,8 +220,8 @@ final class AppUpdateManager {
                     arguments: ["--verify", "--deep", "--strict", packagedAppURL.path]
                 )
 
-                progress = 0.84
-                progressLabel = "Installing…"
+                progress = 0.80
+                progressLabel = "Staging…"
                 _ = try await Self.runCommand(
                     executable: "/usr/bin/ditto",
                     arguments: [packagedAppURL.path, stagedAppURL.path]
@@ -223,6 +230,19 @@ final class AppUpdateManager {
                     executable: "/usr/bin/codesign",
                     arguments: ["--verify", "--deep", "--strict", stagedAppURL.path]
                 )
+            }
+
+            if backendNeedsUpdate {
+                progress = frontendNeedsUpdate ? 0.84 : 0.05
+                progressLabel = "Updating JasonPython…"
+                try await updateBackendCheckout()
+                backendNeedsUpdate = false
+                completionPending = true
+            }
+
+            if frontendNeedsUpdate {
+                progress = 0.90
+                progressLabel = "Installing…"
 
                 if fileManager.fileExists(atPath: Self.installedAppURL.path) {
                     let backupURL = updateRoot.appendingPathComponent("JasonApp.previous.app")
@@ -238,7 +258,6 @@ final class AppUpdateManager {
                     }
                     throw error
                 }
-
             }
 
             completionPending = true
