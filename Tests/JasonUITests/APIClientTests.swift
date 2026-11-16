@@ -209,9 +209,10 @@ struct APIClientTests {
             #expect(request.url?.path == "/v1/asphalt-tasks")
             let body = try #require(requestBodyData(request))
             let json = try #require(
-                JSONSerialization.jsonObject(with: body) as? [String: String]
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
             )
-            #expect(json == ["type": "REFILL_ADS"])
+            #expect(json["type"] as? String == "REFILL_ADS")
+            #expect(json["repeat"] as? Int == 8)
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: 202,
@@ -224,17 +225,42 @@ struct APIClientTests {
             return (response, data)
         }
 
-        let response = try await client().sendAsphaltTask(.refillAds)
+        let response = try await client().sendAsphaltTask(.refillAds, repeatCount: 8)
 
         #expect(response.type == .refillAds)
         #expect(response.topic == "projects/jasonapp-xm0830/topics/asphalt_legend_topic")
         #expect(response.messageID == "message-123")
     }
 
-    @Test func exposesResetAndRefillingAsTheAsphaltTaskActions() {
+    @Test func sendsResetWithoutARepeatField() async throws {
+        MockURLProtocol.handler = { request in
+            let body = try #require(requestBodyData(request))
+            let json = try #require(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            #expect(json["type"] as? String == "RESET")
+            #expect(json["repeat"] == nil)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 202,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (
+                response,
+                Data(
+                    #"{"type":"RESET","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-124"}"#.utf8
+                )
+            )
+        }
+
+        _ = try await client().sendAsphaltTask(.reset)
+    }
+
+    @Test func exposesResetAndRefillAsTheAsphaltTaskActions() {
         #expect(AsphaltTaskType.allCases == [.reset, .refillAds])
         #expect(AsphaltTaskType.reset.title == "Reset")
-        #expect(AsphaltTaskType.refillAds.title == "Refilling")
+        #expect(AsphaltTaskType.refillAds.title == "Refill")
     }
 
     @Test func buildsFirestoreMapURL() {

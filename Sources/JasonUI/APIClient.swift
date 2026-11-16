@@ -101,7 +101,7 @@ enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .reset: "Reset"
-        case .refillAds: "Refilling"
+        case .refillAds: "Refill"
         }
     }
 
@@ -123,6 +123,16 @@ struct AsphaltTaskResponse: Decodable, Equatable {
     enum CodingKeys: String, CodingKey {
         case type, topic
         case messageID = "message_id"
+    }
+}
+
+private struct AsphaltTaskRequestBody: Encodable {
+    let type: String
+    let repeatCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case repeatCount = "repeat"
     }
 }
 
@@ -537,11 +547,17 @@ struct APIClient: Sendable {
         )
     }
 
-    func sendAsphaltTask(_ type: AsphaltTaskType) async throws -> AsphaltTaskResponse {
-        try await request(
+    func sendAsphaltTask(
+        _ type: AsphaltTaskType,
+        repeatCount: Int? = nil
+    ) async throws -> AsphaltTaskResponse {
+        return try await request(
             path: "v1/asphalt-tasks",
             method: "POST",
-            body: ["type": type.rawValue]
+            body: AsphaltTaskRequestBody(
+                type: type.rawValue,
+                repeatCount: repeatCount
+            )
         )
     }
 
