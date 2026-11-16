@@ -9,7 +9,6 @@ final class AppUpdateManager {
         case idle
         case checking
         case current
-        case waitingForBuild
         case updateAvailable
         case updating
     }
@@ -32,12 +31,14 @@ final class AppUpdateManager {
         }
 
         let tagName: String
+        let targetCommitish: String
         let assets: [Asset]
         let draft: Bool?
         let prerelease: Bool?
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
+            case targetCommitish = "target_commitish"
             case assets, draft, prerelease
         }
 
@@ -87,9 +88,6 @@ final class AppUpdateManager {
     var progressLabel = ""
     var errorMessage: String?
 
-    private static let frontendCommitURL = URL(
-        string: "https://api.github.com/repos/CountToFiveXY/JasonUI/commits/main"
-    )!
     private static let backendCommitURL = URL(
         string: "https://api.github.com/repos/CountToFiveXY/JasonPython/commits/main"
     )!
@@ -106,7 +104,6 @@ final class AppUpdateManager {
         self.session = session
     }
 
-    var isWaitingForBuild: Bool { state == .waitingForBuild }
     var updateAvailable: Bool { state == .updateAvailable }
     var isChecking: Bool { state == .checking }
     var isUpdating: Bool { state == .updating }
@@ -125,7 +122,7 @@ final class AppUpdateManager {
         await checkForUpdates()
         while !Task.isCancelled {
             do {
-                try await Task.sleep(for: isWaitingForBuild ? .seconds(60) : Self.checkInterval)
+                try await Task.sleep(for: Self.checkInterval)
             } catch {
                 return
             }
@@ -140,14 +137,12 @@ final class AppUpdateManager {
 
         do {
             let backendDirectory = try resolveBackendDirectory()
-            async let remoteCommitTask = fetchRemoteCommit(from: Self.frontendCommitURL)
             async let publishedBuildTask = fetchPublishedBuild()
             async let installedCommitTask = installedSourceCommit()
             async let backendRemoteCommitTask = fetchRemoteCommit(from: Self.backendCommitURL)
             async let backendInstalledCommitTask = repositoryCommit(at: backendDirectory)
-            let (remoteCommit, installedCommit, backendRemoteCommit, backendInstalledCommit, publishedBuild) =
+            let (installedCommit, backendRemoteCommit, backendInstalledCommit, publishedBuild) =
                 try await (
-                    remoteCommitTask,
                     installedCommitTask,
                     backendRemoteCommitTask,
                     backendInstalledCommitTask,
@@ -160,10 +155,11 @@ final class AppUpdateManager {
             self.backendDirectory = backendDirectory
             backendNeedsUpdate = backendRemoteCommit != backendInstalledCommit
             state = Self.availability(
-                installed: installedCommit, remote: remoteCommit,
-                published: publishedBuild?.commit, backendNeedsUpdate: backendNeedsUpdate
+                installed: installedCommit, published: publishedBuild?.commit,
+                backendNeedsUpdate: backendNeedsUpdate
             )
-            frontendNeedsUpdate = state == .updateAvailable && remoteCommit != installedCommit
+            frontendNeedsUpdate = publishedBuild?.commit != nil
+                && publishedBuild?.commit != installedCommit
             if completionPending && state == .current { state = .updateAvailable }
         } catch {
             state = .idle
@@ -171,14 +167,11 @@ final class AppUpdateManager {
         }
     }
 
-    /// Only the published build of the current main commit is installable.
-    /// While its archive is pending, hold the combined frontend/backend update.
+    /// The newest published archive is the source of truth for frontend updates.
     nonisolated static func availability(
-        installed: String, remote: String, published: String?, backendNeedsUpdate: Bool
+        installed: String, published: String?, backendNeedsUpdate: Bool
     ) -> State {
-        if remote != installed {
-            return published == remote ? .updateAvailable : .waitingForBuild
-        }
+        if let published, published != installed { return .updateAvailable }
         return backendNeedsUpdate ? .updateAvailable : .current
     }
 
@@ -380,11 +373,13 @@ final class AppUpdateManager {
 
     func fetchPublishedBuild() async throws -> PublishedBuild? {
         guard let release = try await fetchLatestRelease(), release.appArchive != nil else { return nil }
-        // target_commitish can be the moving branch name; resolve the immutable tag instead.
-        let tagURL = Self.frontendCommitURL.deletingLastPathComponent()
-            .appendingPathComponent(release.tagName)
-        let commit = try await fetchRemoteCommit(from: tagURL)
-        return PublishedBuild(release: release, commit: commit)
+        let commit = release.targetCommitish
+        guard commit.count == 40, commit.allSatisfy(\.isHexDigit) else {
+            throw UpdatePreparationError(
+                message: "The published release does not identify an immutable source commit."
+            )
+        }
+        return PublishedBuild(release: release, commit: commit.lowercased())
     }
 
     private func fetchLatestRelease() async throws -> GitHubRelease? {

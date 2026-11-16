@@ -79,7 +79,7 @@ struct AppModelTests {
 struct AppUpdateTests {
     @Test func picksThePackagedAppFromTheReleaseAssets() throws {
         let json = Data(#"""
-        {"tag_name":"build-42","assets":[
+        {"tag_name":"build-42","target_commitish":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assets":[
           {"name":"notes.md","browser_download_url":"https://example.com/notes.md"},
           {"name":"JasonApp.zip","browser_download_url":"https://example.com/JasonApp.zip","state":"uploaded","size":1024}
         ]}

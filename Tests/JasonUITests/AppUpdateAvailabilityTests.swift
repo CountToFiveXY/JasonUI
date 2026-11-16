@@ -5,46 +5,38 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct AppUpdateAvailabilityTests {
-    @Test func waitsForPublishedPackageEvenWhenBackendAlsoChanged() {
-        for published in [nil, "installed", "intermediate"] as [String?] {
-            for backendChanged in [false, true] {
-                #expect(AppUpdateManager.availability(
-                    installed: "installed", remote: "new-main", published: published,
-                    backendNeedsUpdate: backendChanged
-                ) == .waitingForBuild)
-            }
-        }
-    }
-
-    @Test func enablesUpdateOnceMainHasAPublishedPackage() {
+    @Test func enablesUpdateForANewerPublishedPackage() {
         #expect(AppUpdateManager.availability(
-            installed: "installed", remote: "new-main", published: "new-main", backendNeedsUpdate: false
+            installed: "installed", published: "published", backendNeedsUpdate: false
         ) == .updateAvailable)
     }
 
-    @Test func localBuildAtMainDoesNotDowngradeToOlderRelease() {
+    @Test func currentPublishedPackageOnlyUpdatesForBackendChanges() {
         #expect(AppUpdateManager.availability(
-            installed: "new-main", remote: "new-main", published: "old-release", backendNeedsUpdate: false
+            installed: "published", published: "published", backendNeedsUpdate: false
         ) == .current)
         #expect(AppUpdateManager.availability(
-            installed: "new-main", remote: "new-main", published: "old-release", backendNeedsUpdate: true
+            installed: "published", published: "published", backendNeedsUpdate: true
         ) == .updateAvailable)
     }
 
-    @Test func resolvesPublishedTagRatherThanMovingTargetBranch() async throws {
+    @Test func usesImmutableReleaseTargetWithoutACommitRequest() async throws {
         ReleaseURLProtocol.handler = { request in
-            switch request.url?.path {
-            case "/repos/CountToFiveXY/JasonUI/releases/latest":
-                return (200, Self.releaseJSON())
-            case "/repos/CountToFiveXY/JasonUI/commits/build-42":
-                return (200, Data(#"{"sha":"published-commit"}"#.utf8))
-            default:
-                throw URLError(.badURL)
-            }
+            #expect(request.url?.path == "/repos/CountToFiveXY/JasonUI/releases/latest")
+            return (200, Self.releaseJSON())
         }
         let build = try #require(try await manager().fetchPublishedBuild())
-        #expect(build.commit == "published-commit")
+        #expect(build.commit == String(repeating: "a", count: 40))
         #expect(build.release.appArchive?.browserDownloadURL.absoluteString == "https://example.com/JasonApp.zip")
+    }
+
+    @Test func rejectsReleaseWithoutImmutableCommit() async {
+        ReleaseURLProtocol.handler = { _ in
+            (200, Self.releaseJSON(targetCommitish: "main"))
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await manager().fetchPublishedBuild()
+        }
     }
 
     @Test func rejectsIncompleteOrNonpublicReleases() async throws {
@@ -120,10 +112,12 @@ struct AppUpdateAvailabilityTests {
 
     nonisolated private static func releaseJSON(
         state: String = "uploaded", size: Int = 1024,
-        draft: Bool = false, prerelease: Bool = false, assets: [[String: Any]]? = nil
+        draft: Bool = false, prerelease: Bool = false, assets: [[String: Any]]? = nil,
+        targetCommitish: String = String(repeating: "a", count: 40)
     ) -> Data {
         try! JSONSerialization.data(withJSONObject: [
-            "tag_name": "build-42", "target_commitish": "main", "draft": draft, "prerelease": prerelease,
+            "tag_name": "build-42", "target_commitish": targetCommitish,
+            "draft": draft, "prerelease": prerelease,
             "assets": assets ?? [[
                 "name": "JasonApp.zip", "browser_download_url": "https://example.com/JasonApp.zip",
                 "state": state, "size": size,

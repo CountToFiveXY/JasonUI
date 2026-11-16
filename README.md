@@ -159,13 +159,11 @@ Every commit pushed to `main` is built and published by GitHub Actions
 (`.github/workflows/release.yml`), which runs the tests, packages
 `JasonApp.app`, and attaches it to a release as `JasonApp.zip`.
 
-JasonApp checks the remote JasonUI `main` branch when it opens and every 15
-minutes afterward. The bottom-left control shows **Update** only when the
-current main commit has a published release with a fully uploaded, nonempty
-`JasonApp.zip`. The release tag is resolved to its actual commit.
-While the package is pending, it shows a non-clickable **Building…** label and
-checks again every minute. Backend-only updates remain available when the
-frontend is current; combined updates wait until the frontend package is ready.
+JasonApp checks the latest published JasonUI release when it opens and every 15
+minutes afterward. The bottom-left control shows **Update** when that release
+contains a fully uploaded, nonempty `JasonApp.zip` built from a different source
+commit. The release's immutable target commit identifies the packaged build.
+Backend-only updates remain available when the frontend is current.
 
 Click **Update** to automatically:
 

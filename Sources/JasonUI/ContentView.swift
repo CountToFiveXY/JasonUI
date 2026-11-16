@@ -182,10 +182,6 @@ private struct GitHubFooter: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-        } else if updateManager.isWaitingForBuild {
-            Text("Building…")
-                .foregroundStyle(.secondary)
-                .help("New code is available. Waiting for its published installation package; checks again automatically.")
         } else if updateManager.updateAvailable {
             Button("Update") {
                 Task {
