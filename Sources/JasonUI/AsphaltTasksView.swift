@@ -21,6 +21,7 @@ struct AsphaltTasksView: View {
                     showsRepeatInput: true
                 )
                 taskRow(.startGame)
+                taskRow(.closeGame)
                 taskRow(
                     .reset,
                     annotation: "Reset AL to restore ad count to 20"
