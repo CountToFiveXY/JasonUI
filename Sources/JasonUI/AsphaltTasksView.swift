@@ -11,6 +11,8 @@ struct AsphaltTasksView: View {
     @State private var refillRepeat = ""
     @State private var isHoveringRefillRepeat = false
     @State private var pendingRepeat = 8
+    @State private var confirmationSecondsRemaining = 3
+    @State private var confirmationSequence = 0
     @FocusState private var isRefillRepeatFocused: Bool
 
     var body: some View {
@@ -26,6 +28,7 @@ struct AsphaltTasksView: View {
                     .reset,
                     annotation: "Reset AL to restore ad count to 20"
                 )
+                taskRow(.window)
                 if isSending {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -61,16 +64,27 @@ struct AsphaltTasksView: View {
             isPresented: $showConfirmation,
             presenting: pendingTask
         ) { task in
-            Button("Cancel", role: .cancel) {}
-            Button("Confirm", role: task == .reset ? .destructive : nil) {
-                Task { await send(task, repeatCount: pendingRepeat) }
+            Button("No", role: .cancel) {
+                cancelConfirmation()
+            }
+            Button("Yes", role: task == .reset ? .destructive : nil) {
+                confirm(task)
             }
         } message: { task in
             if task == .refillAds {
-                Text("This will send one refill task with a repeat count of \(pendingRepeat).")
+                Text(
+                    "This will send one refill task with a repeat count of \(pendingRepeat). "
+                    + "Automatically selecting Yes in \(confirmationSecondsRemaining) seconds."
+                )
             } else {
-                Text(task.confirmationMessage)
+                Text(
+                    task.confirmationMessage
+                    + " Automatically selecting Yes in \(confirmationSecondsRemaining) seconds."
+                )
             }
+        }
+        .task(id: confirmationSequence) {
+            await autoConfirmPendingTask()
         }
     }
 
@@ -86,7 +100,9 @@ struct AsphaltTasksView: View {
                     pendingRepeat = refillRepeatValue
                 }
                 pendingTask = task
+                confirmationSecondsRemaining = 3
                 showConfirmation = true
+                confirmationSequence += 1
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -138,6 +154,36 @@ struct AsphaltTasksView: View {
 
     private var refillRepeatValue: Int {
         Int(refillRepeat).flatMap { (1...99).contains($0) ? $0 : nil } ?? 8
+    }
+
+    @MainActor
+    private func autoConfirmPendingTask() async {
+        guard let task = pendingTask, showConfirmation else { return }
+
+        for seconds in stride(from: 3, through: 1, by: -1) {
+            confirmationSecondsRemaining = seconds
+            do {
+                try await Task.sleep(for: .seconds(1))
+            } catch {
+                return
+            }
+            guard showConfirmation, pendingTask == task else { return }
+        }
+
+        confirm(task)
+    }
+
+    @MainActor
+    private func cancelConfirmation() {
+        showConfirmation = false
+        pendingTask = nil
+    }
+
+    @MainActor
+    private func confirm(_ task: AsphaltTaskType) {
+        showConfirmation = false
+        pendingTask = nil
+        Task { await send(task, repeatCount: pendingRepeat) }
     }
 
     @MainActor
