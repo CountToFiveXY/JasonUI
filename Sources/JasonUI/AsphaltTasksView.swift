@@ -29,6 +29,7 @@ struct AsphaltTasksView: View {
                     annotation: "Reset AL to restore ad count to 20"
                 )
                 taskRow(.window)
+                taskRow(.mute, requiresConfirmation: false)
                 if isSending {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -92,17 +93,22 @@ struct AsphaltTasksView: View {
     private func taskRow(
         _ task: AsphaltTaskType,
         annotation: String? = nil,
-        showsRepeatInput: Bool = false
+        showsRepeatInput: Bool = false,
+        requiresConfirmation: Bool = true
     ) -> some View {
         HStack {
             Button(task.title) {
                 if task == .refillAds {
                     pendingRepeat = refillRepeatValue
                 }
-                pendingTask = task
-                confirmationSecondsRemaining = 3
-                showConfirmation = true
-                confirmationSequence += 1
+                if requiresConfirmation {
+                    pendingTask = task
+                    confirmationSecondsRemaining = 3
+                    showConfirmation = true
+                    confirmationSequence += 1
+                } else {
+                    Task { await send(task, repeatCount: pendingRepeat) }
+                }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)

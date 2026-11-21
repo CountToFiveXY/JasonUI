@@ -98,6 +98,7 @@ enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
     case startGame = "START_GAME"
     case closeGame = "CLOSE_GAME"
     case window = "WINDOW"
+    case mute = "MUTE"
 
     var id: String { rawValue }
 
@@ -107,7 +108,8 @@ enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
         case .refillAds: "Refill"
         case .startGame: "Start"
         case .closeGame: "Close"
-        case .window: "WINDOW"
+        case .window: "Window"
+        case .mute: "Mute"
         }
     }
 
@@ -123,6 +125,8 @@ enum AsphaltTaskType: String, Codable, Equatable, CaseIterable, Identifiable {
             "This will close Asphalt Legends on the Windows PC."
         case .window:
             "This will send a window task to the Windows PC."
+        case .mute:
+            "This will toggle the Windows PC audio mute state."
         }
     }
 }

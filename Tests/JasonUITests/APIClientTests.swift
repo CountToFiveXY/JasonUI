@@ -332,15 +332,42 @@ struct APIClientTests {
         _ = try await client().sendAsphaltTask(.window)
     }
 
+    @Test func sendsMuteWithoutARepeatField() async throws {
+        MockURLProtocol.handler = { request in
+            let body = try #require(requestBodyData(request))
+            let json = try #require(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            #expect(json["type"] as? String == "MUTE")
+            #expect(json["repeat"] == nil)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 202,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (
+                response,
+                Data(
+                    #"{"type":"MUTE","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-128"}"#.utf8
+                )
+            )
+        }
+
+        _ = try await client().sendAsphaltTask(.mute)
+    }
+
     @Test func exposesTheAsphaltTaskActions() {
         #expect(
-            AsphaltTaskType.allCases == [.reset, .refillAds, .startGame, .closeGame, .window]
+            AsphaltTaskType.allCases
+                == [.reset, .refillAds, .startGame, .closeGame, .window, .mute]
         )
         #expect(AsphaltTaskType.reset.title == "Reset")
         #expect(AsphaltTaskType.refillAds.title == "Refill")
         #expect(AsphaltTaskType.startGame.title == "Start")
         #expect(AsphaltTaskType.closeGame.title == "Close")
-        #expect(AsphaltTaskType.window.title == "WINDOW")
+        #expect(AsphaltTaskType.window.title == "Window")
+        #expect(AsphaltTaskType.mute.title == "Mute")
     }
 
     @Test func buildsFirestoreMapURL() {
