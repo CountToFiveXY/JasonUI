@@ -17,15 +17,18 @@ struct AsphaltTasksView: View {
     var body: some View {
         Form {
             Section("Task") {
-                taskRow(.refillAds)
-                taskRow(.startGame)
-                taskRow(.closeGame)
-                taskRow(
-                    .reset,
-                    annotation: "Reset AL to restore ad count to 20"
-                )
-                taskRow(.window)
-                taskRow(.mute, requiresConfirmation: false)
+                HStack {
+                    taskButton(.refillAds)
+                    taskButton(.startGame)
+                }
+                HStack {
+                    taskButton(.window)
+                    taskButton(.closeGame)
+                }
+                HStack {
+                    taskButton(.mute)
+                    taskButton(.reset)
+                }
                 if isSending {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -78,39 +81,29 @@ struct AsphaltTasksView: View {
         }
     }
 
-    @ViewBuilder
-    private func taskRow(
-        _ task: AsphaltTaskType,
-        annotation: String? = nil,
-        requiresConfirmation: Bool = true
-    ) -> some View {
-        HStack {
-            Button(task.title) {
-                if requiresConfirmation {
-                    pendingTask = task
-                    confirmationSecondsRemaining = 3
-                    if task == .refillAds {
-                        refillRepeat = ""
-                        showRefillConfirmation = true
-                    } else {
-                        showConfirmation = true
-                    }
-                    confirmationSequence += 1
+    private func taskButton(_ task: AsphaltTaskType) -> some View {
+        Button {
+            switch task {
+            case .refillAds, .reset:
+                pendingTask = task
+                confirmationSecondsRemaining = 3
+                if task == .refillAds {
+                    refillRepeat = ""
+                    showRefillConfirmation = true
                 } else {
-                    Task { await send(task) }
+                    showConfirmation = true
                 }
+                confirmationSequence += 1
+            case .startGame, .closeGame, .window, .mute:
+                Task { await send(task) }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(isSending)
-
-            Spacer()
-
-            if let annotation {
-                Text(annotation)
-                    .foregroundStyle(.secondary)
-            }
+        } label: {
+            Text(task.title)
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(isSending)
+        .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
