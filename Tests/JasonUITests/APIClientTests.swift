@@ -420,6 +420,48 @@ struct APIClientTests {
         #expect(response.leaderboards[0].season?.name == "SUNSET SPEEDWAY")
     }
 
+    @Test func galaxyLensCountdownUsesChinaEventDeadline() throws {
+        let deadline = try #require(GalaxyLensCountdown.deadline(endDate: "2026-09-30"))
+        let expected = try #require(
+            ISO8601DateFormatter().date(from: "2026-09-30T09:00:00Z")
+        )
+
+        #expect(deadline == expected)
+    }
+
+    @Test func galaxyLensCountdownShowsMinutesAtAllDurations() throws {
+        let parser = ISO8601DateFormatter()
+        let moreThanOneDay = try #require(parser.date(from: "2026-09-29T07:45:00Z"))
+        let lessThanOneDay = try #require(parser.date(from: "2026-09-30T05:45:00Z"))
+        let lessThanOneHour = try #require(parser.date(from: "2026-09-30T08:45:00Z"))
+        let afterEvent = try #require(parser.date(from: "2026-09-30T09:01:00Z"))
+
+        #expect(
+            GalaxyLensCountdown.remainingText(
+                endDate: "2026-09-30",
+                now: moreThanOneDay
+            ) == "剩1天 1时 15分"
+        )
+        #expect(
+            GalaxyLensCountdown.remainingText(
+                endDate: "2026-09-30",
+                now: lessThanOneDay
+            ) == "剩3时15分"
+        )
+        #expect(
+            GalaxyLensCountdown.remainingText(
+                endDate: "2026-09-30",
+                now: lessThanOneHour
+            ) == "剩15分"
+        )
+        #expect(
+            GalaxyLensCountdown.remainingText(endDate: "bad-date", now: moreThanOneDay) == nil
+        )
+        #expect(
+            GalaxyLensCountdown.remainingText(endDate: "2026-09-30", now: afterEvent) == nil
+        )
+    }
+
     @Test func loadsScoreBasedGalaxyLeaderboardTiers() async throws {
         MockURLProtocol.handler = { request in
             let data = Data(

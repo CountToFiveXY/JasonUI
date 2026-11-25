@@ -718,18 +718,20 @@ private struct GalaxyLeaderboardCard: View {
                     .lineLimit(2)
             }
 
-            if let remainingText {
-                Label(remainingText, systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.green)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.green.opacity(0.16), in: Capsule())
-                    .overlay(Capsule().stroke(Color.green.opacity(0.35)))
-            } else {
-                Label("进行中", systemImage: "bolt.fill")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.green)
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                if let remainingText = remainingText(at: context.date) {
+                    Label(remainingText, systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.green.opacity(0.16), in: Capsule())
+                        .overlay(Capsule().stroke(Color.green.opacity(0.35)))
+                } else {
+                    Label("进行中", systemImage: "bolt.fill")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.green)
+                }
             }
 
             VStack(spacing: 7) {
@@ -784,24 +786,56 @@ private struct GalaxyLeaderboardCard: View {
         return tier.rank.formatted()
     }
 
-    private var remainingText: String? {
+    private func remainingText(at now: Date) -> String? {
         guard leaderboard.status == "active",
-              let endDateText = leaderboard.event?.endDate,
-              let endDate = Self.dayFormatter.date(from: endDateText),
-              let deadline = Calendar.current.date(byAdding: .day, value: 1, to: endDate)
+              let endDateText = leaderboard.event?.endDate
         else { return nil }
-        let seconds = deadline.timeIntervalSinceNow
-        guard seconds > 0 else { return nil }
-        let hours = Int(seconds / 3_600)
-        return "剩\(hours / 24)天\(hours % 24)时"
+        return GalaxyLensCountdown.remainingText(endDate: endDateText, now: now)
+    }
+}
+
+/// Galaxy Lens treats an event date as ending at 17:00 China Standard Time,
+/// which is 09:00 UTC. Keeping that rule in UTC avoids device-time-zone drift.
+enum GalaxyLensCountdown {
+    static func deadline(endDate: String) -> Date? {
+        let components = endDate.split(separator: "-", omittingEmptySubsequences: false)
+        guard components.count == 3,
+              let year = Int(components[0]),
+              let month = Int(components[1]),
+              let day = Int(components[2])
+        else { return nil }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(
+            from: DateComponents(
+                timeZone: calendar.timeZone,
+                year: year,
+                month: month,
+                day: day,
+                hour: 9
+            )
+        )
     }
 
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    static func remainingText(endDate: String, now: Date) -> String? {
+        guard let deadline = deadline(endDate: endDate) else { return nil }
+        let seconds = deadline.timeIntervalSince(now)
+        guard seconds > 0 else { return nil }
+
+        let totalMinutes = Int(seconds / 60)
+        let days = totalMinutes / (24 * 60)
+        let hours = totalMinutes % (24 * 60) / 60
+        let minutes = totalMinutes % 60
+
+        if days > 0 {
+            return "剩\(days)天 \(hours)时 \(minutes)分"
+        }
+        if hours > 0 {
+            return "剩\(hours)时\(minutes)分"
+        }
+        return "剩\(minutes)分"
+    }
 }
 
 private struct ShieldShape: Shape {
