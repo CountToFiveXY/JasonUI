@@ -100,14 +100,14 @@ Open **JasonApp** from Applications.
 
 Opening JasonApp starts the **core services** when they are not running:
 Redis and the JasonPython backend, which reads Firestore. File Transfer,
-Leaderboard, Gauntlet and the URL shortener work from that alone. Temporal
-and Kafka stay off; the features that need them (Workflows, Kafka messages)
-report that the service is not running.
+Leaderboard, Gauntlet and the URL shortener work from that alone. Use
+**Activate All Services** to run Temporal workflows and process order success
+messages from Pub/Sub.
 
 The middle button on the **Server** pane follows what is running:
 
-- **Activate All Services** while anything is down: starts Redis, Kafka,
-  Temporal, their workers, and the backend.
+- **Activate All Services** starts Redis, Temporal, the Temporal worker,
+  the Pub/Sub order success worker, and the backend.
 - **Restart Services** once everything is up: stops them all and starts them
   again, which loads the backend checkout's current code.
 
@@ -177,7 +177,7 @@ Click **Update** to automatically:
    it does not replace a local UI build with an older installed app.
 
 The server keeps core mode when optional services were off, or starts the full
-service set again when Kafka or Temporal was active. If restarting fails, the UI
+service set again when Temporal was active. If restarting fails, the UI
 stays open with an error so you can retry. Automatic restart supports backends
 running on this Mac; remote servers must be restarted on their host.
 

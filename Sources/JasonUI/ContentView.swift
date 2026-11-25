@@ -266,7 +266,6 @@ struct DashboardView: View {
                     successDestination: model.client?.firestoreURL()
                 )
                 ServiceStatusRow(title: "Redis", state: model.redisState)
-                ServiceStatusRow(title: "Kafka", state: model.kafkaState)
                 ServiceStatusRow(
                     title: "Temporal",
                     state: model.temporalState,
@@ -821,15 +820,15 @@ private struct ShieldShape: Shape {
 struct WorkflowsView: View {
     @Environment(AppModel.self) private var model
     @State private var userID = ""
-    @State private var kafkaOrderID = ""
+    @State private var successOrderID = ""
     @State private var workflowResponse: WorkflowResponse?
     @State private var orderResponse: OrderResponse?
-    @State private var kafkaResponse: KafkaMessageResponse?
-    @State private var schedulingResponse: KafkaSchedulingResponse?
+    @State private var successResponse: OrderSuccessResponse?
+    @State private var schedulingResponse: SchedulingResponse?
     @State private var isLoading = false
     @State private var error: String?
     @FocusState private var isUserIDFieldFocused: Bool
-    @FocusState private var isKafkaOrderIDFieldFocused: Bool
+    @FocusState private var isSuccessOrderIDFieldFocused: Bool
 
     var body: some View {
         Form {
@@ -846,20 +845,22 @@ struct WorkflowsView: View {
                     )
                 }
             }
-            Section("Kafka") {
+            Section("Order Success") {
                 HStack {
-                    Button("Send Success Message") { Task { await sendKafkaMessage() } }
+                    Button("Send Success Message") { Task { await sendSuccessMessage() } }
                         .disabled(
-                            kafkaOrderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            successOrderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         )
                     Spacer()
                     ClickToEnterField(
                         prompt: "Enter order ID",
-                        text: $kafkaOrderID,
-                        isFocused: $isKafkaOrderIDFieldFocused
+                        text: $successOrderID,
+                        isFocused: $isSuccessOrderIDFieldFocused
                     )
                 }
                 LabeledContent("Status", value: "SUCCESS")
+            }
+            Section("Scheduling") {
                 Button("Start Scheduling") { Task { await startScheduling() } }
             }
             if let workflowResponse {
@@ -898,24 +899,17 @@ struct WorkflowsView: View {
                     }
                 }
             }
-            if let kafkaResponse {
-                Section("Kafka Message") {
-                    LabeledContent("Order ID", value: kafkaResponse.id)
-                    LabeledContent("Status", value: kafkaResponse.status)
-                    LabeledContent("Topic", value: kafkaResponse.topic)
-                    LabeledContent("Partition", value: String(kafkaResponse.partition))
-                    LabeledContent("Offset", value: String(kafkaResponse.offset))
+            if let successResponse {
+                Section("Pub/Sub Message") {
+                    LabeledContent("Order ID", value: successResponse.id)
+                    LabeledContent("Status", value: successResponse.status)
+                    LabeledContent("Topic", value: successResponse.topic)
+                    LabeledContent("Message ID", value: successResponse.messageID)
                 }
             }
             if let schedulingResponse {
-                Section("Kafka Scheduling") {
+                Section("Scheduling Result") {
                     LabeledContent("Action", value: schedulingResponse.action)
-                    LabeledContent("Topic", value: schedulingResponse.topic)
-                    LabeledContent(
-                        "Partition",
-                        value: String(schedulingResponse.partition)
-                    )
-                    LabeledContent("Offset", value: String(schedulingResponse.offset))
                 }
             }
             ErrorSection(message: error)
@@ -944,25 +938,25 @@ struct WorkflowsView: View {
         do {
             let response = try await client.order(userID: trimmedUserID)
             orderResponse = response
-            kafkaOrderID = response.id
-            kafkaResponse = nil
+            successOrderID = response.id
+            successResponse = nil
             workflowResponse = nil
             error = nil
         }
         catch { self.error = error.localizedDescription }
     }
 
-    private func sendKafkaMessage() async {
+    private func sendSuccessMessage() async {
         guard let client = model.client else {
             error = APIError.invalidBaseURL.localizedDescription
             return
         }
-        let trimmedOrderID = kafkaOrderID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOrderID = successOrderID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedOrderID.isEmpty else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            kafkaResponse = try await client.sendOrderSuccess(orderID: trimmedOrderID)
+            successResponse = try await client.sendOrderSuccess(orderID: trimmedOrderID)
             error = nil
         }
         catch { self.error = error.localizedDescription }

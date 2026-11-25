@@ -24,7 +24,6 @@ final class AppModel {
     var health: HealthResponse?
     var backendState = ServiceState.unknown
     var redisState = ServiceState.unknown
-    var kafkaState = ServiceState.unknown
     var temporalState = ServiceState.unknown
     var googleCloudState = ServiceState.unknown
     var errorMessage: String?
@@ -61,7 +60,6 @@ final class AppModel {
             health = nil
             backendState = .unavailable("Invalid server URL")
             redisState = .unknown
-            kafkaState = .unknown
             temporalState = .unsupported
             googleCloudState = .unknown
             return
@@ -69,7 +67,6 @@ final class AppModel {
         isChecking = true
         backendState = .checking
         redisState = .checking
-        kafkaState = .checking
         temporalState = .checking
         googleCloudState = .checking
         defer { isChecking = false }
@@ -84,19 +81,11 @@ final class AppModel {
             redisState = health?.redis.lowercased() == "connected"
                 ? .running("Connected")
                 : .unavailable(health?.redis)
-            if let kafka = health?.kafka {
-                kafkaState = kafka.lowercased() == "connected"
-                    ? .running("Connected")
-                    : .unavailable(kafka)
-            } else {
-                kafkaState = .unsupported
-            }
             errorMessage = nil
         } catch {
             health = nil
             backendState = .unavailable(error.localizedDescription)
             redisState = .unknown
-            kafkaState = .unknown
             errorMessage = error.localizedDescription
         }
 
@@ -116,12 +105,12 @@ final class AppModel {
     /// True when the backend and every service it can use are running.
     /// Google Cloud is left out: starting services cannot fix credentials.
     var allServicesRunning: Bool {
-        [backendState, redisState, kafkaState, temporalState].allSatisfy {
+        [backendState, redisState, temporalState].allSatisfy {
             if case .running = $0 { true } else { false }
         }
     }
 
-    /// Starts everything: Redis, Kafka, Temporal, their workers and the
+    /// Starts everything: Redis, Temporal, the order success worker and the
     /// backend. A running backend, such as the core one started at launch,
     /// is stopped first so the full startup replaces it.
     func activateAllServices() async {
@@ -133,7 +122,7 @@ final class AppModel {
     }
 
     /// At launch, starts the core services, Redis and the backend, when a
-    /// local backend is not already running. Temporal and Kafka stay off
+    /// local backend is not already running. Temporal and the order success worker stay off
     /// until Activate All Services.
     func startCoreServicesIfNeeded() async {
         guard !isActivating, !isClosing, backendState != .running(), isLocalServer else { return }
@@ -222,8 +211,7 @@ final class AppModel {
         await checkConnection()
         // Preserve core mode instead of starting optional services solely for an update.
         let fullStartup: Bool
-        if case .running = kafkaState { fullStartup = true }
-        else if case .running = temporalState { fullStartup = true }
+        if case .running = temporalState { fullStartup = true }
         else { fullStartup = false }
 
         await closeServer()
@@ -279,7 +267,6 @@ final class AppModel {
         health = nil
         backendState = .unavailable("Stopped")
         redisState = .unknown
-        kafkaState = .unavailable("Stopped")
         temporalState = .unavailable("Stopped")
         googleCloudState = .unavailable("Stopped")
     }

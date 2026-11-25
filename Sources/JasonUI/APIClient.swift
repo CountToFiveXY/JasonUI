@@ -3,7 +3,6 @@ import Foundation
 struct HealthResponse: Decodable, Equatable {
     let status: String
     let redis: String
-    let kafka: String?
 }
 
 struct WorkflowResponse: Decodable, Equatable {
@@ -30,14 +29,14 @@ struct OrderResponse: Decodable, Equatable {
     }
 }
 
-private struct KafkaOrderStatusPayload: Codable, Equatable {
+private struct OrderSuccessStatusPayload: Codable, Equatable {
     let id: String
     let status: String
 }
 
-private struct KafkaOrderMessageRequest: Encodable {
+private struct OrderSuccessMessageRequest: Encodable {
     let eventType = "ORDER"
-    let detailedPayload: KafkaOrderStatusPayload
+    let detailedPayload: OrderSuccessStatusPayload
 
     enum CodingKeys: String, CodingKey {
         case eventType = "EventType"
@@ -45,13 +44,13 @@ private struct KafkaOrderMessageRequest: Encodable {
     }
 }
 
-private struct KafkaSchedulingPayload: Codable, Equatable {
+private struct SchedulingPayload: Codable, Equatable {
     let action: String
 }
 
-private struct KafkaSchedulingMessageRequest: Encodable {
+private struct SchedulingMessageRequest: Encodable {
     let eventType = "SCHEDULING"
-    let detailedPayload: KafkaSchedulingPayload
+    let detailedPayload: SchedulingPayload
 
     enum CodingKeys: String, CodingKey {
         case eventType = "EventType"
@@ -59,12 +58,11 @@ private struct KafkaSchedulingMessageRequest: Encodable {
     }
 }
 
-struct KafkaMessageResponse: Decodable, Equatable {
+struct OrderSuccessResponse: Decodable, Equatable {
     let eventType: String
-    private let detailedPayload: KafkaOrderStatusPayload
+    private let detailedPayload: OrderSuccessStatusPayload
     let topic: String
-    let partition: Int
-    let offset: Int
+    let messageID: String
 
     var id: String { detailedPayload.id }
     var status: String { detailedPayload.status }
@@ -72,23 +70,20 @@ struct KafkaMessageResponse: Decodable, Equatable {
     enum CodingKeys: String, CodingKey {
         case eventType = "EventType"
         case detailedPayload = "detailed_payload"
-        case topic, partition, offset
+        case topic
+        case messageID = "message_id"
     }
 }
 
-struct KafkaSchedulingResponse: Decodable, Equatable {
+struct SchedulingResponse: Decodable, Equatable {
     let eventType: String
-    private let detailedPayload: KafkaSchedulingPayload
-    let topic: String
-    let partition: Int
-    let offset: Int
+    private let detailedPayload: SchedulingPayload
 
     var action: String { detailedPayload.action }
 
     enum CodingKeys: String, CodingKey {
         case eventType = "EventType"
         case detailedPayload = "detailed_payload"
-        case topic, partition, offset
     }
 }
 
@@ -540,12 +535,12 @@ struct APIClient: Sendable {
         try await request(path: "v1/order", method: "POST", body: ["user_id": userID])
     }
 
-    func sendOrderSuccess(orderID: String) async throws -> KafkaMessageResponse {
+    func sendOrderSuccess(orderID: String) async throws -> OrderSuccessResponse {
         try await request(
             path: "v1/messages",
             method: "POST",
-            body: KafkaOrderMessageRequest(
-                detailedPayload: KafkaOrderStatusPayload(
+            body: OrderSuccessMessageRequest(
+                detailedPayload: OrderSuccessStatusPayload(
                     id: orderID,
                     status: "SUCCESS"
                 )
@@ -553,12 +548,12 @@ struct APIClient: Sendable {
         )
     }
 
-    func startScheduling() async throws -> KafkaSchedulingResponse {
+    func startScheduling() async throws -> SchedulingResponse {
         try await request(
             path: "v1/messages",
             method: "POST",
-            body: KafkaSchedulingMessageRequest(
-                detailedPayload: KafkaSchedulingPayload(action: "START")
+            body: SchedulingMessageRequest(
+                detailedPayload: SchedulingPayload(action: "START")
             )
         )
     }

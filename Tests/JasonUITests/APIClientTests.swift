@@ -32,10 +32,10 @@ struct APIClientTests {
     @Test func decodesHealthResponse() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.url?.path == "/health")
-            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"status":"OK","redis":"connected","kafka":"connected"}"#.utf8))
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"status":"OK","redis":"connected"}"#.utf8))
         }
         let response = try await client().health()
-        #expect(response == HealthResponse(status: "OK", redis: "connected", kafka: "connected"))
+        #expect(response == HealthResponse(status: "OK", redis: "connected"))
     }
 
     @Test func startsFileTransferAndDecodesStatus() async throws {
@@ -138,7 +138,7 @@ struct APIClientTests {
         #expect(response.workflowID == "order-123")
     }
 
-    @Test func sendsKafkaOrderSuccessAndDecodesMetadata() async throws {
+    @Test func sendsOrderSuccessAndDecodesPubSubMessageID() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/v1/messages")
@@ -156,7 +156,7 @@ struct APIClientTests {
                 headerFields: nil
             )!
             let data = Data(
-                #"{"EventType":"ORDER","detailed_payload":{"id":"order-123","status":"SUCCESS"},"topic":"backend-messages","partition":0,"offset":4}"#.utf8
+                #"{"EventType":"ORDER","detailed_payload":{"id":"order-123","status":"SUCCESS"},"topic":"projects/jasonapp-xm0830/topics/order_success","message_id":"1234"}"#.utf8
             )
             return (response, data)
         }
@@ -166,12 +166,11 @@ struct APIClientTests {
         #expect(response.id == "order-123")
         #expect(response.status == "SUCCESS")
         #expect(response.eventType == "ORDER")
-        #expect(response.topic == "backend-messages")
-        #expect(response.partition == 0)
-        #expect(response.offset == 4)
+        #expect(response.topic == "projects/jasonapp-xm0830/topics/order_success")
+        #expect(response.messageID == "1234")
     }
 
-    @Test func startsSchedulingThroughKafkaAndDecodesMetadata() async throws {
+    @Test func startsLocalScheduling() async throws {
         MockURLProtocol.handler = { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/v1/messages")
@@ -189,7 +188,7 @@ struct APIClientTests {
                 headerFields: nil
             )!
             let data = Data(
-                #"{"EventType":"SCHEDULING","detailed_payload":{"action":"START"},"topic":"scheduler-control","partition":1,"offset":9}"#.utf8
+                #"{"EventType":"SCHEDULING","detailed_payload":{"action":"START"}}"#.utf8
             )
             return (response, data)
         }
@@ -198,9 +197,6 @@ struct APIClientTests {
 
         #expect(response.eventType == "SCHEDULING")
         #expect(response.action == "START")
-        #expect(response.topic == "scheduler-control")
-        #expect(response.partition == 1)
-        #expect(response.offset == 9)
     }
 
     @Test func sendsAsphaltTaskAndDecodesPublishDetails() async throws {
