@@ -4,13 +4,12 @@ struct AsphaltTasksView: View {
     @Environment(AppModel.self) private var model
     @State private var pendingTask: AsphaltTaskType?
     @State private var showConfirmation = false
+    @State private var showRefillConfirmation = false
     @State private var isSending = false
     @State private var response: AsphaltTaskResponse?
     @State private var responseIsExpanded = false
     @State private var errorMessage: String?
     @State private var refillRepeat = ""
-    @State private var isHoveringRefillRepeat = false
-    @State private var pendingRepeat = 8
     @State private var confirmationSecondsRemaining = 3
     @State private var confirmationSequence = 0
     @FocusState private var isRefillRepeatFocused: Bool
@@ -18,10 +17,7 @@ struct AsphaltTasksView: View {
     var body: some View {
         Form {
             Section("Task") {
-                taskRow(
-                    .refillAds,
-                    showsRepeatInput: true
-                )
+                taskRow(.refillAds)
                 taskRow(.startGame)
                 taskRow(.closeGame)
                 taskRow(
@@ -72,17 +68,10 @@ struct AsphaltTasksView: View {
                 confirm(task)
             }
         } message: { task in
-            if task == .refillAds {
-                Text(
-                    "This will send one refill task with a repeat count of \(pendingRepeat). "
-                    + "Automatically selecting Yes in \(confirmationSecondsRemaining) seconds."
-                )
-            } else {
-                Text(
-                    task.confirmationMessage
-                    + " Automatically selecting Yes in \(confirmationSecondsRemaining) seconds."
-                )
-            }
+            Text(task.confirmationMessage + " " + confirmationCountdown)
+        }
+        .sheet(isPresented: $showRefillConfirmation) {
+            refillConfirmation
         }
         .task(id: confirmationSequence) {
             await autoConfirmPendingTask()
@@ -93,21 +82,22 @@ struct AsphaltTasksView: View {
     private func taskRow(
         _ task: AsphaltTaskType,
         annotation: String? = nil,
-        showsRepeatInput: Bool = false,
         requiresConfirmation: Bool = true
     ) -> some View {
         HStack {
             Button(task.title) {
-                if task == .refillAds {
-                    pendingRepeat = refillRepeatValue
-                }
                 if requiresConfirmation {
                     pendingTask = task
                     confirmationSecondsRemaining = 3
-                    showConfirmation = true
+                    if task == .refillAds {
+                        refillRepeat = ""
+                        showRefillConfirmation = true
+                    } else {
+                        showConfirmation = true
+                    }
                     confirmationSequence += 1
                 } else {
-                    Task { await send(task, repeatCount: pendingRepeat) }
+                    Task { await send(task) }
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -120,51 +110,57 @@ struct AsphaltTasksView: View {
                 Text(annotation)
                     .foregroundStyle(.secondary)
             }
-
-            if showsRepeatInput {
-                refillRepeatControl
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var refillRepeatControl: some View {
-        ZStack(alignment: .trailing) {
-            TextField("", text: $refillRepeat)
-                .multilineTextAlignment(.trailing)
-                .focused($isRefillRepeatFocused)
-                .accessibilityLabel("Refill repeat count")
-                .onChange(of: refillRepeat) { _, value in
-                    refillRepeat = sanitizedRepeat(value)
-                }
-                .disabled(isSending)
-
-            if refillRepeat.isEmpty && !isRefillRepeatFocused {
-                Text("8")
-                    .foregroundStyle(isHoveringRefillRepeat ? Color.accentColor : .secondary)
-                    .padding(.horizontal, 6)
-                    .contentShape(Rectangle())
-                    .onTapGesture { isRefillRepeatFocused = true }
-                    .onHover { isHoveringRefillRepeat = $0 }
+    private var refillConfirmation: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Confirm Refill?")
+                .font(.headline)
+            HStack {
+                Text("Count (1–99, blank uses 8)")
+                TextField("", text: $refillRepeat)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 48)
+                    .focused($isRefillRepeatFocused)
+                    .accessibilityLabel("Refill count")
+                    .onChange(of: refillRepeat) { previous, current in
+                        if !current.isEmpty, validRefillCount(current) == nil {
+                            refillRepeat = previous
+                        }
+                    }
+            }
+            Text(confirmationCountdown)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("No", role: .cancel) { cancelConfirmation() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Yes") { confirm(.refillAds) }
+                    .keyboardShortcut(.defaultAction)
             }
         }
-        .frame(width: 48)
-        .help("Repeat count; defaults to 8")
+        .padding(20)
+        .defaultFocus($isRefillRepeatFocused, true)
     }
 
-    private func sanitizedRepeat(_ value: String) -> String {
-        let digits = String(value.filter(\.isNumber).prefix(2))
-        return Int(digits) == 0 ? "" : digits
+    private var confirmationCountdown: String {
+        "Automatically selecting Yes in \(confirmationSecondsRemaining) seconds."
     }
 
-    private var refillRepeatValue: Int {
-        Int(refillRepeat).flatMap { (1...99).contains($0) ? $0 : nil } ?? 8
+    private func validRefillCount(_ text: String) -> Int? {
+        guard let count = Int(text), (1...99).contains(count), String(count) == text else {
+            return nil
+        }
+        return count
     }
 
     @MainActor
     private func autoConfirmPendingTask() async {
-        guard let task = pendingTask, showConfirmation else { return }
+        guard let task = pendingTask else { return }
+        let sequence = confirmationSequence
 
         for seconds in stride(from: 3, through: 1, by: -1) {
             confirmationSecondsRemaining = seconds
@@ -173,7 +169,8 @@ struct AsphaltTasksView: View {
             } catch {
                 return
             }
-            guard showConfirmation, pendingTask == task else { return }
+            guard !Task.isCancelled, confirmationSequence == sequence,
+                  pendingTask == task, showConfirmation || showRefillConfirmation else { return }
         }
 
         confirm(task)
@@ -182,18 +179,20 @@ struct AsphaltTasksView: View {
     @MainActor
     private func cancelConfirmation() {
         showConfirmation = false
+        showRefillConfirmation = false
         pendingTask = nil
     }
 
     @MainActor
     private func confirm(_ task: AsphaltTaskType) {
-        showConfirmation = false
-        pendingTask = nil
-        Task { await send(task, repeatCount: pendingRepeat) }
+        guard pendingTask == task else { return }
+        let repeatCount = task == .refillAds ? validRefillCount(refillRepeat) ?? 8 : nil
+        cancelConfirmation()
+        Task { await send(task, repeatCount: repeatCount) }
     }
 
     @MainActor
-    private func send(_ task: AsphaltTaskType, repeatCount: Int) async {
+    private func send(_ task: AsphaltTaskType, repeatCount: Int? = nil) async {
         guard let client = model.client else {
             errorMessage = APIError.invalidBaseURL.localizedDescription
             return
@@ -208,7 +207,7 @@ struct AsphaltTasksView: View {
         do {
             response = try await client.sendAsphaltTask(
                 task,
-                repeatCount: task == .refillAds ? repeatCount : nil
+                repeatCount: repeatCount
             )
             responseIsExpanded = true
         } catch {
