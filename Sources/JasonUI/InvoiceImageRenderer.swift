@@ -4,22 +4,20 @@ import AppKit
 enum InvoiceImageRenderer {
     private static let imageWidth: CGFloat = 1_200
     private static let margin: CGFloat = 64
+    private static let tableTop: CGFloat = 242
     private static let tableHeaderHeight: CGFloat = 52
     private static let rowHeight: CGFloat = 58
-    private static let totalHeight: CGFloat = 76
-    private static let bottomWhitespace: CGFloat = 150
-    private static let brandHeaderHeight: CGFloat = 300
+    private static let accentGreen = NSColor(srgbRed: 0.09, green: 0.45, blue: 0.30, alpha: 1)
+    private static let brandPurple = NSColor(srgbRed: 0.20, green: 0.08, blue: 0.34, alpha: 1)
 
-    static func makeImage(records: [ExpenseRecord]) -> NSImage {
+    static func makeImage(records: [ExpenseRecord], issuedAt: Date = Date()) -> NSImage {
         let sortedRecords = records.sorted { $0.createdAt < $1.createdAt }
-        // Keep the table visually attached to the two header cards.
-        let tableTop: CGFloat = 230
+        let total = sortedRecords.reduce(0) { $0 + $1.amountInCents }
         let imageHeight = tableTop
             + tableHeaderHeight
             + CGFloat(sortedRecords.count) * rowHeight
-            + totalHeight
-            + bottomWhitespace
-        let size = NSSize(width: imageWidth, height: max(imageHeight, 386))
+            + margin
+        let size = NSSize(width: imageWidth, height: imageHeight)
         let image = NSImage(size: size)
 
         image.lockFocus()
@@ -28,20 +26,29 @@ enum InvoiceImageRenderer {
         NSColor.white.setFill()
         NSRect(origin: .zero, size: size).fill()
 
-        drawBrandHeader(in: size)
+        drawSummary(pageHeight: imageHeight, issuedAt: issuedAt, total: total)
 
         let tableWidth = imageWidth - margin * 2
         let headerY = size.height - tableTop - tableHeaderHeight
         NSColor(calibratedWhite: 0.94, alpha: 1).setFill()
         NSRect(x: margin, y: headerY, width: tableWidth, height: tableHeaderHeight).fill()
-        drawText("Purpose (用途)", in: columnRect(y: headerY + 16, column: .purpose), header: true)
-        drawText("Created (日期)", in: columnRect(y: headerY + 16, column: .created), header: true)
-        drawText(
-            "Amount (金额)",
-            in: columnRect(y: headerY + 16, column: .amount),
-            header: true,
-            alignment: .right
-        )
+        NSColor.black.setFill()
+        NSRect(x: margin, y: headerY + tableHeaderHeight - 2, width: tableWidth, height: 2).fill()
+
+        let headingFont = invoiceFont(size: 25, weight: .bold)
+        for (title, column, alignment) in [
+            ("Purpose (用途)", Column.purpose, NSTextAlignment.left),
+            ("Created (日期)", .created, .left),
+            ("Amount (金额)", .amount, .right),
+        ] {
+            drawText(
+                title,
+                in: columnRect(y: headerY + 8, column: column, height: 36),
+                font: headingFont,
+                color: accentGreen,
+                alignment: alignment
+            )
+        }
 
         var rowY = headerY - rowHeight
         for record in sortedRecords {
@@ -49,47 +56,24 @@ enum InvoiceImageRenderer {
                 record.purpose,
                 in: columnRect(y: rowY + 18, column: .purpose),
                 font: invoiceFont(size: 19, weight: .medium),
-                color: .labelColor
+                color: .black
             )
             drawText(
                 dateText(for: record.createdAt),
                 in: columnRect(y: rowY + 18, column: .created),
                 font: invoiceFont(size: 18, weight: .regular),
-                color: .secondaryLabelColor
+                color: NSColor(calibratedWhite: 0.46, alpha: 1)
             )
             drawText(
                 formattedAmount(record.amountInCents),
                 in: columnRect(y: rowY + 18, column: .amount),
                 font: invoiceFont(size: 19, weight: .semibold),
-                color: .labelColor,
+                color: .black,
                 alignment: .right
             )
             drawSeparator(at: rowY)
             rowY -= rowHeight
         }
-
-        let totalY = rowY - totalHeight
-        NSColor.systemIndigo.withAlphaComponent(0.11).setFill()
-        NSBezierPath(
-            roundedRect: NSRect(x: margin, y: totalY, width: tableWidth, height: totalHeight),
-            xRadius: 10,
-            yRadius: 10
-        ).fill()
-        drawText(
-            "Total (合计)",
-            in: NSRect(x: margin + 20, y: totalY + 24, width: 260, height: 30),
-            font: invoiceFont(size: 20, weight: .bold),
-            color: .systemIndigo
-        )
-        drawText(
-            formattedAmount(
-                sortedRecords.reduce(0) { $0 + $1.amountInCents }
-            ),
-            in: NSRect(x: imageWidth - margin - 270, y: totalY + 20, width: 250, height: 36),
-            font: invoiceFont(size: 26, weight: .bold),
-            color: .systemIndigo,
-            alignment: .right
-        )
 
         return image
     }
@@ -100,48 +84,58 @@ enum InvoiceImageRenderer {
 
     private enum Column { case purpose, created, amount }
 
-    private static func drawBrandHeader(in size: NSSize) {
-        let headerRect = NSRect(
-            x: 0,
-            y: size.height - brandHeaderHeight,
-            width: imageWidth,
-            height: brandHeaderHeight
-        )
-        let gradient = NSGradient(
-            starting: NSColor(calibratedRed: 0.025, green: 0.018, blue: 0.045, alpha: 1),
-            ending: NSColor(calibratedRed: 0.16, green: 0.055, blue: 0.29, alpha: 1)
-        )!
-        let brandPanel = NSRect(
-            x: margin,
-            y: headerRect.minY + 94,
-            width: 430,
-            height: 158
-        )
-        gradient.draw(in: brandPanel, angle: 0)
+    private static func drawSummary(pageHeight: CGFloat, issuedAt: Date, total: Int64) {
+        let left = margin + 20
+        let right = imageWidth - margin - 20
+        let rightColumnWidth: CGFloat = 540
+        let rightColumnX = right - rightColumnWidth
+        let labelFont = invoiceFont(size: 26, weight: .bold)
+        let valueFont = invoiceFont(size: 26, weight: .regular)
 
-        let payerPanel = NSRect(
-            x: 714,
-            y: brandPanel.minY,
-            width: imageWidth - 714 - margin,
-            height: brandPanel.height
-        )
-        NSColor(calibratedRed: 0.92, green: 0.90, blue: 0.95, alpha: 1).setFill()
-        NSBezierPath(roundedRect: payerPanel, xRadius: 8, yRadius: 8).fill()
-
+        drawBrand(pageHeight: pageHeight, textLeft: left)
         drawText(
-            "To: Archer (付款人)",
-            in: NSRect(
-                x: payerPanel.minX + 28,
-                y: payerPanel.minY + 50,
-                width: payerPanel.width - 56,
-                height: 48
-            ),
-            font: invoiceFont(size: 28, weight: .semibold),
-            color: NSColor(calibratedRed: 0.20, green: 0.08, blue: 0.34, alpha: 1)
+            "For:",
+            in: NSRect(x: left, y: pageHeight - 177, width: 380, height: 36),
+            font: labelFont,
+            color: accentGreen
         )
+        drawText(
+            "Archer",
+            in: NSRect(x: left, y: pageHeight - 212, width: 380, height: 36),
+            font: valueFont
+        )
+        drawText(
+            "Date Issued (开票日期):",
+            in: NSRect(x: rightColumnX, y: pageHeight - 79, width: rightColumnWidth, height: 36),
+            font: labelFont,
+            color: accentGreen,
+            alignment: .right
+        )
+        let issuedDate = issuedAt.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())
+        drawText(
+            issuedDate,
+            in: NSRect(x: rightColumnX, y: pageHeight - 114, width: rightColumnWidth, height: 36),
+            font: valueFont,
+            alignment: .right
+        )
+        drawText(
+            "Total (合计):",
+            in: NSRect(x: rightColumnX, y: pageHeight - 162, width: rightColumnWidth, height: 36),
+            font: labelFont,
+            color: accentGreen,
+            alignment: .right
+        )
+        drawText(
+            formattedAmount(total),
+            in: NSRect(x: rightColumnX, y: pageHeight - 218, width: rightColumnWidth, height: 56),
+            font: invoiceFont(size: 44, weight: .bold),
+            alignment: .right
+        )
+    }
 
+    private static func drawBrand(pageHeight: CGFloat, textLeft: CGFloat) {
         if let brandImage = loadBrandImage() {
-            let available = NSSize(width: brandPanel.width - 44, height: brandPanel.height - 28)
+            let available = NSSize(width: 395, height: 116)
             let scale = min(
                 available.width / brandImage.size.width,
                 available.height / brandImage.size.height
@@ -151,12 +145,23 @@ enum InvoiceImageRenderer {
                 height: brandImage.size.height * scale
             )
             let destination = NSRect(
-                x: brandPanel.minX + (brandPanel.width - drawnSize.width) / 2,
-                y: brandPanel.minY + (brandPanel.height - drawnSize.height) / 2,
+                x: margin + 5,
+                y: pageHeight - 25 - drawnSize.height,
                 width: drawnSize.width,
                 height: drawnSize.height
             )
-            brandImage.draw(
+            // Tint the transparent logo in isolation so the white page stays white.
+            let tintedBrand = NSImage(size: drawnSize)
+            tintedBrand.lockFocus()
+            let bounds = NSRect(origin: .zero, size: drawnSize)
+            brandImage.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
+            if let context = NSGraphicsContext.current?.cgContext {
+                context.setBlendMode(.sourceAtop)
+                context.setFillColor(brandPurple.cgColor)
+                context.fill(bounds)
+            }
+            tintedBrand.unlockFocus()
+            tintedBrand.draw(
                 in: destination,
                 from: .zero,
                 operation: .sourceOver,
@@ -167,15 +172,9 @@ enum InvoiceImageRenderer {
         } else {
             drawText(
                 "Galaxy® · A",
-                in: NSRect(
-                    x: brandPanel.minX + 20,
-                    y: brandPanel.minY + 52,
-                    width: brandPanel.width - 40,
-                    height: 58
-                ),
+                in: NSRect(x: textLeft, y: pageHeight - 112, width: 380, height: 58),
                 font: invoiceFont(size: 38, weight: .bold),
-                color: .white,
-                alignment: .center
+                color: brandPurple
             )
         }
     }
@@ -218,14 +217,14 @@ enum InvoiceImageRenderer {
         return nil
     }
 
-    private static func columnRect(y: CGFloat, column: Column) -> NSRect {
+    private static func columnRect(y: CGFloat, column: Column, height: CGFloat = 28) -> NSRect {
         switch column {
         case .purpose:
-            NSRect(x: margin + 20, y: y, width: 490, height: 28)
+            NSRect(x: margin + 20, y: y, width: 490, height: height)
         case .created:
-            NSRect(x: 590, y: y, width: 230, height: 28)
+            NSRect(x: 590, y: y, width: 230, height: height)
         case .amount:
-            NSRect(x: imageWidth - margin - 250, y: y, width: 230, height: 28)
+            NSRect(x: imageWidth - margin - 250, y: y, width: 230, height: height)
         }
     }
 
@@ -241,16 +240,15 @@ enum InvoiceImageRenderer {
     private static func drawText(
         _ text: String,
         in rect: NSRect,
-        font: NSFont = .systemFont(ofSize: 16),
-        color: NSColor = .secondaryLabelColor,
-        header: Bool = false,
+        font: NSFont,
+        color: NSColor = .black,
         alignment: NSTextAlignment = .left
     ) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
         paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: header ? invoiceFont(size: 16, weight: .semibold) : font,
+            .font: font,
             .foregroundColor: color,
             .paragraphStyle: paragraph
         ]
