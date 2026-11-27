@@ -23,6 +23,32 @@ struct AsphaltTasksView: View {
     @State private var refillRepeat = ""
     @State private var confirmationSecondsRemaining = 3
     @State private var confirmationSequence = 0
+    private enum QuickAction: String, Identifiable {
+        case reset = "1-click-Reset"
+        case refill = "1-click-Refill"
+
+        var id: Self { self }
+    }
+
+    private struct QuickActionButtonStyle: ButtonStyle {
+        @Environment(\.isEnabled) private var isEnabled
+
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .font(.body.weight(.medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .foregroundStyle(.white)
+                .background(
+                    Color(red: 0.57, green: 0.16, blue: 0.40)
+                        .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.5),
+                    in: RoundedRectangle(cornerRadius: 7)
+                )
+        }
+    }
+
+    @State private var quickAction: QuickAction?
+    @State private var quickStatus: String?
     @FocusState private var isRefillRepeatFocused: Bool
 
     var body: some View {
@@ -52,6 +78,21 @@ struct AsphaltTasksView: View {
                     if let status = statusText[task] {
                         LabeledContent(task.title, value: status)
                     }
+                }
+            }
+
+            Section("Quick Actions") {
+                ForEach([QuickAction.refill, .reset]) { action in
+                    Button(action.rawValue) { quickAction = action }
+                        .buttonStyle(QuickActionButtonStyle())
+                        .disabled(quickAction != nil || isSending || pendingTask != nil || !tracking.isEmpty)
+                }
+                if quickAction != nil {
+                    ProgressView().controlSize(.small)
+                }
+                if let quickStatus {
+                    Text(quickStatus)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -123,6 +164,16 @@ struct AsphaltTasksView: View {
         .task(id: historyRevision) {
             await refreshHistory()
         }
+        .task(id: quickAction) {
+            guard let quickAction else { return }
+            await runQuickAction(quickAction)
+        }
+        .onDisappear {
+            if quickAction != nil {
+                quickAction = nil
+                quickStatus = "Stopped. Any task already sent may still finish."
+            }
+        }
     }
 
     private func taskButton(_ task: AsphaltTaskType) -> some View {
@@ -146,7 +197,7 @@ struct AsphaltTasksView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(isSending || tracking[task] != nil)
+        .disabled(isSending || tracking[task] != nil || quickAction != nil)
         .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: tracking[task]?.id) {
@@ -303,6 +354,80 @@ struct AsphaltTasksView: View {
         guard !Task.isCancelled, tracking[task]?.id == job.id else { return }
         statusText[task] = "No final result received"
         tracking[task] = nil
+    }
+
+    @MainActor
+    private func runQuickAction(_ action: QuickAction) async {
+        defer {
+            if !Task.isCancelled {
+                quickAction = nil
+            }
+        }
+        guard let client = model.client else {
+            quickStatus = APIError.invalidBaseURL.localizedDescription
+            return
+        }
+
+        do {
+            switch action {
+            case .reset:
+                try await runQuickStep(.reset, client: client, trackCompletion: true)
+                quickStatus = "Reset completed. Waiting 120 seconds…"
+                try await Task.sleep(for: .seconds(120))
+                try await runQuickStep(.window, client: client)
+                try await runQuickStep(.refillAds, client: client, repeatCount: 4)
+                quickStatus = "1-click-Reset completed · 4 ads"
+            case .refill:
+                try await runQuickStep(.startGame, client: client)
+                try await runQuickStep(.refillAds, client: client, repeatCount: 8)
+                try await runQuickStep(.closeGame, client: client, trackCompletion: true)
+                quickStatus = "1-click-Refill completed · 8 ads"
+            }
+            NSSound(named: "Glass")?.play()
+        } catch {
+            guard !Task.isCancelled else { return }
+            quickStatus = "Stopped. \(error.localizedDescription)"
+        }
+    }
+
+    private struct QuickStepError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    @MainActor
+    private func runQuickStep(
+        _ task: AsphaltTaskType,
+        client: APIClient,
+        repeatCount: Int? = nil,
+        trackCompletion: Bool? = nil
+    ) async throws {
+        try Task.checkCancellation()
+        quickStatus = "Sending \(task.title)…"
+        let submitted = try await client.sendAsphaltTask(
+            task, repeatCount: repeatCount, trackCompletion: trackCompletion
+        )
+        try Task.checkCancellation()
+        historyRevision += 1
+        guard let taskID = submitted.taskID else {
+            throw QuickStepError(message: "\(task.title) did not return a tracking ID.")
+        }
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(900))
+        quickStatus = "Waiting for \(task.title)…"
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: .seconds(2))
+            let result = try? await client.refillStatus(taskID: taskID)
+            try Task.checkCancellation()
+            guard let result, !result.status.isPending else { continue }
+            historyRevision += 1
+            guard result.status == .succeeded else {
+                let detail = result.error ?? historyStatus(result.status)
+                throw QuickStepError(message: "\(task.title): \(detail)")
+            }
+            return
+        }
+        throw QuickStepError(message: "No final result received for \(task.title).")
     }
 
     @MainActor

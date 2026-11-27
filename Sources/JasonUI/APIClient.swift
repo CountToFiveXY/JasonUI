@@ -173,10 +173,12 @@ struct AsphaltTaskHistoryEntry: Decodable, Identifiable {
 private struct AsphaltTaskRequestBody: Encodable {
     let type: String
     let repeatCount: Int?
+    let trackCompletion: Bool?
 
     enum CodingKeys: String, CodingKey {
         case type
         case repeatCount = "repeat"
+        case trackCompletion = "track_completion"
     }
 }
 
@@ -593,14 +595,16 @@ struct APIClient: Sendable {
 
     func sendAsphaltTask(
         _ type: AsphaltTaskType,
-        repeatCount: Int? = nil
+        repeatCount: Int? = nil,
+        trackCompletion: Bool? = nil
     ) async throws -> AsphaltTaskResponse {
         return try await request(
             path: "v1/asphalt-tasks",
             method: "POST",
             body: AsphaltTaskRequestBody(
                 type: type.rawValue,
-                repeatCount: repeatCount
+                repeatCount: repeatCount,
+                trackCompletion: trackCompletion
             )
         )
     }
