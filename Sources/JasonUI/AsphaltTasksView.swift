@@ -13,6 +13,9 @@ struct AsphaltTasksView: View {
     @State private var refillClient: APIClient?
     @State private var refillStatusText: String?
     @State private var isTrackingRefill = false
+    @State private var history: [AsphaltTaskHistoryEntry] = []
+    @State private var historyRevision = 0
+    @State private var historyError: String?
     @State private var refillRepeat = ""
     @State private var confirmationSecondsRemaining = 3
     @State private var confirmationSequence = 0
@@ -63,6 +66,31 @@ struct AsphaltTasksView: View {
             }
 
             ErrorSection(message: errorMessage)
+            Section("Task History · Last 10") {
+                if !history.isEmpty {
+                    Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Task")
+                            Text("Requested")
+                            Text("Status")
+                        }
+                        .font(.headline)
+
+                        ForEach(history) { entry in
+                            GridRow {
+                                Text(entry.repeatCount.map { "\(entry.type.title) × \($0)" } ?? entry.type.title)
+                                Text(historyDate(entry.requestedAt))
+                                Text(historyStatus(entry.status))
+                            }
+                        }
+                    }
+                } else if historyError == nil {
+                    Text("No recent tasks").foregroundStyle(.secondary)
+                }
+                if let historyError {
+                    Text(historyError).foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Task")
@@ -88,6 +116,9 @@ struct AsphaltTasksView: View {
         }
         .task(id: refillTaskID) {
             await trackRefill()
+        }
+        .task(id: historyRevision) {
+            await refreshHistory()
         }
     }
 
@@ -195,6 +226,45 @@ struct AsphaltTasksView: View {
     }
 
     @MainActor
+    private func refreshHistory() async {
+        while !Task.isCancelled {
+            if let client = model.client {
+                do {
+                    let entries = try await client.asphaltTaskHistory()
+                    guard !Task.isCancelled else { return }
+                    history = entries
+                    historyError = nil
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    historyError = "Task history is temporarily unavailable."
+                }
+            }
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func historyDate(_ value: String) -> String {
+        let date = (try? Date(value, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+            ?? (try? Date(value, strategy: .iso8601))
+        return date?.formatted(date: .abbreviated, time: .shortened) ?? value
+    }
+
+    private func historyStatus(_ status: RefillTaskResult.Status) -> String {
+        switch status {
+        case .queued: "Queued"
+        case .submitted: "Submitted"
+        case .running: "Running"
+        case .succeeded: "Completed"
+        case .failed: "Failed"
+        case .unknown: "Outcome unknown"
+        }
+    }
+
+    @MainActor
     private func trackRefill() async {
         guard isTrackingRefill, let taskID = refillTaskID, let client = refillClient else { return }
         let deadline = ContinuousClock.now.advanced(by: .seconds(900))
@@ -205,6 +275,7 @@ struct AsphaltTasksView: View {
                 guard !Task.isCancelled, refillTaskID == taskID else { return }
                 refillStatusText = switch result.status {
                 case .queued: "Queued"
+                case .submitted: "Submitted"
                 case .running: "Refilling…"
                 case .succeeded: "Completed"
                 case .failed: result.error ?? "Failed"
@@ -234,7 +305,10 @@ struct AsphaltTasksView: View {
         response = nil
         responseIsExpanded = false
         errorMessage = nil
-        defer { isSending = false }
+        defer {
+            isSending = false
+            historyRevision += 1
+        }
 
         do {
             let submitted = try await client.sendAsphaltTask(
