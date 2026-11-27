@@ -92,6 +92,7 @@ struct AsphaltTasksView: View {
                 }
                 if let quickStatus {
                     Text(quickStatus)
+                        .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
             }
@@ -372,8 +373,13 @@ struct AsphaltTasksView: View {
             switch action {
             case .reset:
                 try await runQuickStep(.reset, client: client, trackCompletion: true)
-                quickStatus = "Reset completed. Waiting 120 seconds…"
-                try await Task.sleep(for: .seconds(120))
+                let waitSeconds = 110
+                let clock = ContinuousClock()
+                let waitStarted = clock.now
+                for elapsed in 0..<waitSeconds {
+                    quickStatus = "Reset completed. Window starts in \(waitSeconds - elapsed)s."
+                    try await clock.sleep(until: waitStarted.advanced(by: .seconds(elapsed + 1)))
+                }
                 try await runQuickStep(.window, client: client)
                 try await runQuickStep(.refillAds, client: client, repeatCount: 4)
                 quickStatus = "1-click-Reset completed · 4 ads"
