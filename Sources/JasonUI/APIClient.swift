@@ -130,11 +130,28 @@ struct AsphaltTaskResponse: Decodable, Equatable {
     let type: AsphaltTaskType
     let topic: String
     let messageID: String
+    let taskID: UUID?
 
     enum CodingKeys: String, CodingKey {
         case type, topic
         case messageID = "message_id"
+        case taskID = "task_id"
     }
+}
+
+struct RefillTaskResult: Decodable {
+    enum Status: String, Decodable {
+        case queued = "QUEUED"
+        case running = "RUNNING"
+        case succeeded = "SUCCEEDED"
+        case failed = "FAILED"
+        case unknown = "UNKNOWN"
+
+        var isPending: Bool { self == .queued || self == .running }
+    }
+
+    let status: Status
+    let error: String?
 }
 
 private struct AsphaltTaskRequestBody: Encodable {
@@ -570,6 +587,10 @@ struct APIClient: Sendable {
                 repeatCount: repeatCount
             )
         )
+    }
+
+    func refillStatus(taskID: UUID) async throws -> RefillTaskResult {
+        try await request(path: "v1/asphalt-tasks/\(taskID.uuidString)", method: "GET")
     }
 
     func maps() async throws -> [MapSummary] {

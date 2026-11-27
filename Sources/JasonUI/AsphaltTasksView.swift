@@ -9,6 +9,10 @@ struct AsphaltTasksView: View {
     @State private var response: AsphaltTaskResponse?
     @State private var responseIsExpanded = false
     @State private var errorMessage: String?
+    @State private var refillTaskID: UUID?
+    @State private var refillClient: APIClient?
+    @State private var refillStatusText: String?
+    @State private var isTrackingRefill = false
     @State private var refillRepeat = ""
     @State private var confirmationSecondsRemaining = 3
     @State private var confirmationSequence = 0
@@ -36,6 +40,9 @@ struct AsphaltTasksView: View {
                         Text("Sending…")
                             .foregroundStyle(.secondary)
                     }
+                }
+                if let refillStatusText {
+                    LabeledContent("Refill", value: refillStatusText)
                 }
             }
 
@@ -79,6 +86,9 @@ struct AsphaltTasksView: View {
         .task(id: confirmationSequence) {
             await autoConfirmPendingTask()
         }
+        .task(id: refillTaskID) {
+            await trackRefill()
+        }
     }
 
     private func taskButton(_ task: AsphaltTaskType) -> some View {
@@ -102,7 +112,7 @@ struct AsphaltTasksView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(isSending)
+        .disabled(isSending || (task == .refillAds && isTrackingRefill))
         .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -185,6 +195,35 @@ struct AsphaltTasksView: View {
     }
 
     @MainActor
+    private func trackRefill() async {
+        guard isTrackingRefill, let taskID = refillTaskID, let client = refillClient else { return }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(900))
+        while ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(for: .seconds(2))
+                let result = try await client.refillStatus(taskID: taskID)
+                guard !Task.isCancelled, refillTaskID == taskID else { return }
+                refillStatusText = switch result.status {
+                case .queued: "Queued"
+                case .running: "Refilling…"
+                case .succeeded: "Completed"
+                case .failed: result.error ?? "Failed"
+                case .unknown: result.error ?? "Outcome unknown"
+                }
+                if !result.status.isPending {
+                    isTrackingRefill = false
+                    return
+                }
+            } catch {
+                guard !Task.isCancelled, refillTaskID == taskID else { return }
+                refillStatusText = "Status temporarily unavailable; checking again…"
+            }
+        }
+        refillStatusText = "No final result received"
+        isTrackingRefill = false
+    }
+
+    @MainActor
     private func send(_ task: AsphaltTaskType, repeatCount: Int? = nil) async {
         guard let client = model.client else {
             errorMessage = APIError.invalidBaseURL.localizedDescription
@@ -198,10 +237,17 @@ struct AsphaltTasksView: View {
         defer { isSending = false }
 
         do {
-            response = try await client.sendAsphaltTask(
+            let submitted = try await client.sendAsphaltTask(
                 task,
                 repeatCount: repeatCount
             )
+            response = submitted
+            if task == .refillAds {
+                refillClient = client
+                refillStatusText = submitted.taskID == nil ? "Submitted" : "Queued"
+                isTrackingRefill = submitted.taskID != nil
+                refillTaskID = submitted.taskID
+            }
             responseIsExpanded = true
         } catch {
             errorMessage = error.localizedDescription
