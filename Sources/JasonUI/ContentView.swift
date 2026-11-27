@@ -880,6 +880,9 @@ struct WorkflowsView: View {
                 }
             }
             Section("Order Success") {
+                if let url = model.client?.firestorePayoutsURL() {
+                    Link("Open payouts in Firestore", destination: url)
+                }
                 HStack {
                     Button("Send Success Message") { Task { await sendSuccessMessage() } }
                         .disabled(

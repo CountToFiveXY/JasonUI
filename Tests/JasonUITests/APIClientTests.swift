@@ -111,7 +111,7 @@ struct APIClientTests {
         let url = client().firestoreOrderURL(orderID: "order-123")
         #expect(
             url?.absoluteString ==
-                "https://console.firebase.google.com/project/jasonapp-xm0830/firestore/databases/-default-/data/~2Forders~2Forder-123"
+                "https://console.firebase.google.com/project/jasonapp-xm0830/firestore/databases/workflows/data/~2Forders~2Forder-123"
         )
     }
 

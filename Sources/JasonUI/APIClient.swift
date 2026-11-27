@@ -740,15 +740,19 @@ struct APIClient: Sendable {
     }
 
     func firestoreOrderURL(orderID: String) -> URL? {
-        firestoreDocumentURL(path: "orders/\(orderID)")
+        firestoreDocumentURL(path: "orders/\(orderID)", database: "workflows")
     }
 
-    private func firestoreDocumentURL(path: String) -> URL? {
+    func firestorePayoutsURL() -> URL? {
+        firestoreDocumentURL(path: "payouts", database: "workflows")
+    }
+
+    private func firestoreDocumentURL(path: String, database: String = "-default-") -> URL? {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "console.firebase.google.com"
         let escapedPath = path.split(separator: "/").map { "~2F" + $0 }.joined()
-        components.path = "/project/jasonapp-xm0830/firestore/databases/-default-/data/\(escapedPath)"
+        components.path = "/project/jasonapp-xm0830/firestore/databases/\(database)/data/\(escapedPath)"
         return components.url
     }
 
