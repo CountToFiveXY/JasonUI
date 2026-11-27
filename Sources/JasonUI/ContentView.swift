@@ -901,7 +901,10 @@ struct WorkflowsView: View {
                 Section("Result") {
                     LabeledContent("Message", value: workflowResponse.result)
                     LabeledContent("Workflow ID") {
-                        if let url = model.client?.temporalWorkflowURL(workflowID: workflowResponse.workflowID) {
+                        if let url = model.client?.temporalWorkflowURL(
+                            workflowID: workflowResponse.workflowID,
+                            namespace: "default"
+                        ) {
                             Link(workflowResponse.workflowID, destination: url)
                                 .help("Open this workflow in Temporal UI")
                         } else {
@@ -924,7 +927,10 @@ struct WorkflowsView: View {
                         }
                     }
                     LabeledContent("Workflow ID") {
-                        if let url = model.client?.temporalWorkflowURL(workflowID: orderResponse.workflowID) {
+                        if let url = model.client?.temporalWorkflowURL(
+                            workflowID: orderResponse.workflowID,
+                            namespace: "order"
+                        ) {
                             Link(orderResponse.workflowID, destination: url)
                                 .help("Open this workflow in Temporal UI")
                         } else {

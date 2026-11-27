@@ -89,8 +89,11 @@ struct APIClientTests {
     }
 
     @Test func buildsTemporalWorkflowURL() {
-        let url = client().temporalWorkflowURL(workflowID: "greeting-123")
-        #expect(url?.absoluteString == "http://127.0.0.1:8233/namespaces/default/workflows/greeting-123")
+        let url = client().temporalWorkflowURL(workflowID: "hello-123", namespace: "default")
+        #expect(url?.absoluteString == "http://127.0.0.1:8233/namespaces/default/workflows/hello-123")
+
+        let orderURL = client().temporalWorkflowURL(workflowID: "order-123", namespace: "order")
+        #expect(orderURL?.absoluteString == "http://127.0.0.1:8233/namespaces/order/workflows/order-123")
     }
 
     @Test func buildsTemporalUIURL() {

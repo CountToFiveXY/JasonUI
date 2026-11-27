@@ -678,7 +678,7 @@ struct APIClient: Sendable {
         }
     }
 
-    func temporalWorkflowURL(workflowID: String, namespace: String = "default") -> URL? {
+    func temporalWorkflowURL(workflowID: String, namespace: String) -> URL? {
         guard let uiURL = temporalUIURL(),
               var components = URLComponents(
                   url: uiURL,
