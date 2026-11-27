@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AsphaltTasksView: View {
@@ -282,7 +283,11 @@ struct AsphaltTasksView: View {
                 case .unknown: result.error ?? "Outcome unknown"
                 }
                 if !result.status.isPending {
+                    guard isTrackingRefill else { return }
                     isTrackingRefill = false
+                    if result.status == .succeeded {
+                        NSSound(named: "Glass")?.play()
+                    }
                     return
                 }
             } catch {
