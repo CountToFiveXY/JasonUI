@@ -10,10 +10,13 @@ struct AsphaltTasksView: View {
     @State private var response: AsphaltTaskResponse?
     @State private var responseIsExpanded = false
     @State private var errorMessage: String?
-    @State private var refillTaskID: UUID?
-    @State private var refillClient: APIClient?
-    @State private var refillStatusText: String?
-    @State private var isTrackingRefill = false
+    private struct Tracking {
+        let id: UUID
+        let client: APIClient
+    }
+
+    @State private var tracking: [AsphaltTaskType: Tracking] = [:]
+    @State private var statusText: [AsphaltTaskType: String] = [:]
     @State private var history: [AsphaltTaskHistoryEntry] = []
     @State private var historyRevision = 0
     @State private var historyError: String?
@@ -45,8 +48,10 @@ struct AsphaltTasksView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if let refillStatusText {
-                    LabeledContent("Refill", value: refillStatusText)
+                ForEach([AsphaltTaskType.refillAds, .startGame, .window]) { task in
+                    if let status = statusText[task] {
+                        LabeledContent(task.title, value: status)
+                    }
                 }
             }
 
@@ -115,9 +120,6 @@ struct AsphaltTasksView: View {
         .task(id: confirmationSequence) {
             await autoConfirmPendingTask()
         }
-        .task(id: refillTaskID) {
-            await trackRefill()
-        }
         .task(id: historyRevision) {
             await refreshHistory()
         }
@@ -144,9 +146,12 @@ struct AsphaltTasksView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(isSending || (task == .refillAds && isTrackingRefill))
+        .disabled(isSending || tracking[task] != nil)
         .fixedSize()
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: tracking[task]?.id) {
+            await trackTask(task)
+        }
     }
 
     private var refillConfirmation: some View {
@@ -266,37 +271,38 @@ struct AsphaltTasksView: View {
     }
 
     @MainActor
-    private func trackRefill() async {
-        guard isTrackingRefill, let taskID = refillTaskID, let client = refillClient else { return }
+    private func trackTask(_ task: AsphaltTaskType) async {
+        guard let job = tracking[task] else { return }
         let deadline = ContinuousClock.now.advanced(by: .seconds(900))
         while ContinuousClock.now < deadline {
             do {
                 try await Task.sleep(for: .seconds(2))
-                let result = try await client.refillStatus(taskID: taskID)
-                guard !Task.isCancelled, refillTaskID == taskID else { return }
-                refillStatusText = switch result.status {
+                let result = try await job.client.refillStatus(taskID: job.id)
+                guard !Task.isCancelled, tracking[task]?.id == job.id else { return }
+                statusText[task] = switch result.status {
                 case .queued: "Queued"
                 case .submitted: "Submitted"
-                case .running: "Refilling…"
+                case .running: task == .refillAds ? "Refilling…" : "Running…"
                 case .succeeded: "Completed"
                 case .failed: result.error ?? "Failed"
                 case .unknown: result.error ?? "Outcome unknown"
                 }
                 if !result.status.isPending {
-                    guard isTrackingRefill else { return }
-                    isTrackingRefill = false
+                    tracking[task] = nil
+                    historyRevision += 1
                     if result.status == .succeeded {
                         NSSound(named: "Glass")?.play()
                     }
                     return
                 }
             } catch {
-                guard !Task.isCancelled, refillTaskID == taskID else { return }
-                refillStatusText = "Status temporarily unavailable; checking again…"
+                guard !Task.isCancelled, tracking[task]?.id == job.id else { return }
+                statusText[task] = "Status temporarily unavailable; checking again…"
             }
         }
-        refillStatusText = "No final result received"
-        isTrackingRefill = false
+        guard !Task.isCancelled, tracking[task]?.id == job.id else { return }
+        statusText[task] = "No final result received"
+        tracking[task] = nil
     }
 
     @MainActor
@@ -321,11 +327,9 @@ struct AsphaltTasksView: View {
                 repeatCount: repeatCount
             )
             response = submitted
-            if task == .refillAds {
-                refillClient = client
-                refillStatusText = submitted.taskID == nil ? "Submitted" : "Queued"
-                isTrackingRefill = submitted.taskID != nil
-                refillTaskID = submitted.taskID
+            if let taskID = submitted.taskID {
+                statusText[task] = "Queued"
+                tracking[task] = Tracking(id: taskID, client: client)
             }
             responseIsExpanded = true
         } catch {
