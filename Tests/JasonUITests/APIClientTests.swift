@@ -219,7 +219,7 @@ struct APIClientTests {
                 headerFields: nil
             )!
             let data = Data(
-                #"{"type":"REFILL_ADS","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-123"}"#.utf8
+                #"{"type":"REFILL_ADS","topic":"projects/jasonapp-xm0830/topics/asphalt_task_requests","message_id":"message-123"}"#.utf8
             )
             return (response, data)
         }
@@ -227,7 +227,7 @@ struct APIClientTests {
         let response = try await client().sendAsphaltTask(.refillAds, repeatCount: 8)
 
         #expect(response.type == .refillAds)
-        #expect(response.topic == "projects/jasonapp-xm0830/topics/asphalt_legend_topic")
+        #expect(response.topic == "projects/jasonapp-xm0830/topics/asphalt_task_requests")
         #expect(response.messageID == "message-123")
     }
 
@@ -248,7 +248,7 @@ struct APIClientTests {
             return (
                 response,
                 Data(
-                    #"{"type":"RESET","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-124"}"#.utf8
+                    #"{"type":"RESET","topic":"projects/jasonapp-xm0830/topics/asphalt_task_requests","message_id":"message-124"}"#.utf8
                 )
             )
         }
@@ -273,7 +273,7 @@ struct APIClientTests {
             return (
                 response,
                 Data(
-                    #"{"type":"START_GAME","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-125"}"#.utf8
+                    #"{"type":"START_GAME","topic":"projects/jasonapp-xm0830/topics/asphalt_task_requests","message_id":"message-125"}"#.utf8
                 )
             )
         }
@@ -298,7 +298,7 @@ struct APIClientTests {
             return (
                 response,
                 Data(
-                    #"{"type":"CLOSE_GAME","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-126"}"#.utf8
+                    #"{"type":"CLOSE_GAME","topic":"projects/jasonapp-xm0830/topics/asphalt_task_requests","message_id":"message-126"}"#.utf8
                 )
             )
         }
@@ -323,7 +323,7 @@ struct APIClientTests {
             return (
                 response,
                 Data(
-                    #"{"type":"WINDOW","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-127"}"#.utf8
+                    #"{"type":"WINDOW","topic":"projects/jasonapp-xm0830/topics/asphalt_task_requests","message_id":"message-127"}"#.utf8
                 )
             )
         }
@@ -348,7 +348,7 @@ struct APIClientTests {
             return (
                 response,
                 Data(
-                    #"{"type":"MUTE","topic":"projects/jasonapp-xm0830/topics/asphalt_legend_topic","message_id":"message-128"}"#.utf8
+                    #"{"type":"MUTE","topic":"projects/jasonapp-xm0830/topics/asphalt_task_requests","message_id":"message-128"}"#.utf8
                 )
             )
         }
